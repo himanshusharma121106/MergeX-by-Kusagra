@@ -86,7 +86,7 @@ const listeners = new Set<() => void>();
 
 function emitLocal() { listeners.forEach((l) => l()); }
 
-export const API_URL = "http://localhost:3000/api";
+export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
 async function fetchFromApi() {
   try {
@@ -461,7 +461,7 @@ export function getPrinterConfig(): PrinterConfig {
     const raw = localStorage.getItem('scanwise_printer_config_v2');
     if (raw) return JSON.parse(raw);
   } catch(e) {}
-  return { url: 'http://localhost:3000/api/bartender', name: 'Zebra_ZT411', method: 'auto' };
+  return { url: `${API_URL}/bartender`, name: 'Zebra_ZT411', method: 'auto' };
 }
 
 export function setPrinterConfig(config: PrinterConfig) {
