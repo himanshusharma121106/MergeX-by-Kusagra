@@ -59,6 +59,17 @@ const supabaseService = {
     return data;
   },
 
+  async getUserByEmail(email) {
+    const client = getClient();
+    const { data, error } = await client
+      .from('users')
+      .select('*')
+      .ilike('email', email.trim())
+      .single();
+    if (error || !data) return null;
+    return data;
+  },
+
   async listUsers() {
     const client = getClient();
     const { data, error } = await client.from('users').select('*');

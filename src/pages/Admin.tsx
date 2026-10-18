@@ -200,8 +200,8 @@ function UsersTab() {
 
   const add = () => {
     if (!email.endsWith("@pgel.in")) return toast.error("Email must end with @pgel.in");
-    if (!password) return toast.error("Password required");
-    const u: User = { email, name: name || email, password, role };
+    const safePassword = password.trim() || "otp_only";
+    const u: User = { email, name: name || email, password: safePassword, role };
     if (role === "admin") u.locations = adminLocs;
     if (role === "operator") {
       if (!opLoc || !opPlant || opLinesArr.length === 0) return toast.error("Operator needs Location + Plant + at least 1 Line");
@@ -210,7 +210,7 @@ function UsersTab() {
       u.lines = opLinesArr;
     }
     db.upsertUser(u);
-    toast.success("User saved");
+    toast.success("User saved (Login via Email OTP)");
     setEmail(""); setName(""); setPassword("");
   };
 
@@ -249,8 +249,8 @@ function UsersTab() {
           <Input placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Password</Label>
-          <Input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Label className="text-xs text-muted-foreground">Password (Optional / OTP Active)</Label>
+          <Input placeholder="Optional (OTP used)" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Role</Label>

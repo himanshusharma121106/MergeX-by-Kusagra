@@ -11,6 +11,7 @@ const supabaseService = require('./supabase');
 const bartenderRoutes = require('./bartender');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const mailer = require('./mailer');
 
 const logger = winston.createLogger({
   level: 'info',
@@ -108,7 +109,120 @@ async function initDb() {
 
 initDb();
 
-// ===== AUTH =====
+// ===== AUTH & OTP STORE =====
+// In-memory OTP storage: email -> { otp, expiresAt, attempts, user }
+const otpStore = new Map();
+
+// Periodic cleanup of expired OTPs every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of otpStore.entries()) {
+    if (now > value.expiresAt) {
+      otpStore.delete(key);
+    }
+  }
+}, 2 * 60 * 1000);
+
+// Request OTP endpoint (verifies user exists in database first)
+app.post('/api/auth/send-otp', loginLimiter, async (req, res) => {
+  const { email } = req.body;
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ success: false, message: 'Email address is required.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail.endsWith('@pgel.in')) {
+    return res.status(400).json({ success: false, message: 'Only authorized @pgel.in corporate emails are permitted.' });
+  }
+
+  try {
+    let user = null;
+    if (await supabaseService.checkSupabaseAvailable()) {
+      user = await supabaseService.getUserByEmail(normalizedEmail);
+    } else {
+      const [rows] = await db.query('SELECT * FROM users WHERE LOWER(email) = ?', [normalizedEmail]);
+      if (rows && rows.length > 0) user = rows[0];
+    }
+
+    // Check if user exists in the database
+    if (!user) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'This email is not registered or authorized in MergeX. Please contact your administrator.' 
+      });
+    }
+
+    if (user.locations && typeof user.locations === 'string') {
+      try { user.locations = JSON.parse(user.locations); } catch {}
+    }
+    if (user.lines && typeof user.lines === 'string') {
+      try { user.lines = JSON.parse(user.lines); } catch {}
+    }
+
+    // Generate secure 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    otpStore.set(normalizedEmail, {
+      otp,
+      expiresAt,
+      attempts: 0,
+      user
+    });
+
+    // Send email using Microsoft 365 / Outlook SMTP via Nodemailer
+    await mailer.sendOtpEmail(user.email, otp, user.name || 'PG Employee');
+    logger.info(`OTP sent successfully to ${user.email}`);
+
+    res.json({ 
+      success: true, 
+      message: `OTP sent successfully to ${user.email}. Please check your inbox or spam folder.` 
+    });
+  } catch (err) {
+    logger.error(`Error sending OTP to ${normalizedEmail}: ${err.message}`);
+    res.status(500).json({ success: false, message: 'Failed to send OTP email: ' + err.message });
+  }
+});
+
+// Verify OTP endpoint
+app.post('/api/auth/verify-otp', loginLimiter, async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ success: false, message: 'Email and 6-digit OTP are required.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const record = otpStore.get(normalizedEmail);
+
+  if (!record) {
+    return res.status(400).json({ success: false, message: 'No OTP requested or code has expired. Please request a new OTP.' });
+  }
+
+  if (Date.now() > record.expiresAt) {
+    otpStore.delete(normalizedEmail);
+    return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new OTP.' });
+  }
+
+  if (record.attempts >= 5) {
+    otpStore.delete(normalizedEmail);
+    return res.status(429).json({ success: false, message: 'Too many incorrect attempts. Please request a new OTP.' });
+  }
+
+  if (record.otp !== String(otp).trim()) {
+    record.attempts += 1;
+    return res.status(400).json({ success: false, message: 'Invalid OTP code. Please enter the correct 6-digit code.' });
+  }
+
+  // OTP verified successfully!
+  const user = { ...record.user };
+  delete user.password;
+  otpStore.delete(normalizedEmail);
+
+  logger.info(`User ${user.email} successfully logged in via email OTP`);
+  res.json({ success: true, user });
+});
+
+// Legacy login fallback (for backward compatibility if needed)
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -305,9 +419,10 @@ app.get('/api/users', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   const { email, name, password, role, locations, location, plant, line, lines } = req.body;
+  const safePassword = password || 'otp_only';
   try {
     if (await supabaseService.checkSupabaseAvailable()) {
-      await supabaseService.upsertUser({ email, name, password, role, locations, location, plant, line, lines });
+      await supabaseService.upsertUser({ email, name, password: safePassword, role, locations, location, plant, line, lines });
       return res.json({ success: true });
     }
 
@@ -317,7 +432,7 @@ app.post('/api/users', async (req, res) => {
       INSERT INTO users (email, name, password, role, locations, location, plant, line, \`lines\`) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE name=?, password=?, role=?, locations=?, location=?, plant=?, line=?, \`lines\`=?
-    `, [email, name, password, role, locsStr, location, plant, line, linesStr, name, password, role, locsStr, location, plant, line, linesStr]);
+    `, [email, name, safePassword, role, locsStr, location, plant, line, linesStr, name, safePassword, role, locsStr, location, plant, line, linesStr]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
