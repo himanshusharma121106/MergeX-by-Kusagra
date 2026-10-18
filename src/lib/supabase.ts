@@ -39,7 +39,6 @@ export async function upsertSupabaseUser(user: User): Promise<boolean> {
     const { error } = await supabase.from("users").upsert({
       email: user.email.toLowerCase().trim(),
       name: user.name,
-      password: user.password || "otp_only",
       role: user.role,
       locations: user.locations || [],
       location: user.location || null,

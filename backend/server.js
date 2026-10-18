@@ -407,7 +407,7 @@ app.get('/api/users', async (req, res) => {
       });
     }
 
-    const [rows] = await db.query('SELECT email, name, role, locations, location, plant, line, `lines`, password FROM users');
+    const [rows] = await db.query('SELECT email, name, role, locations, location, plant, line, `lines` FROM users');
     res.json({ 
       success: true, 
       users: rows.map(u => ({...u, locations: typeof u.locations === 'string' ? JSON.parse(u.locations) : u.locations, lines: typeof u.lines === 'string' ? JSON.parse(u.lines) : u.lines })) 
@@ -418,21 +418,20 @@ app.get('/api/users', async (req, res) => {
 });
 
 app.post('/api/users', async (req, res) => {
-  const { email, name, password, role, locations, location, plant, line, lines } = req.body;
-  const safePassword = password || 'otp_only';
+  const { email, name, role, locations, location, plant, line, lines } = req.body;
   try {
     if (await supabaseService.checkSupabaseAvailable()) {
-      await supabaseService.upsertUser({ email, name, password: safePassword, role, locations, location, plant, line, lines });
+      await supabaseService.upsertUser({ email, name, role, locations, location, plant, line, lines });
       return res.json({ success: true });
     }
 
     const locsStr = locations ? JSON.stringify(locations) : null;
     const linesStr = lines ? JSON.stringify(lines) : null;
     await db.query(`
-      INSERT INTO users (email, name, password, role, locations, location, plant, line, \`lines\`) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE name=?, password=?, role=?, locations=?, location=?, plant=?, line=?, \`lines\`=?
-    `, [email, name, safePassword, role, locsStr, location, plant, line, linesStr, name, safePassword, role, locsStr, location, plant, line, linesStr]);
+      INSERT INTO users (email, name, role, locations, location, plant, line, \`lines\`) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE name=?, role=?, locations=?, location=?, plant=?, line=?, \`lines\`=?
+    `, [email, name, role, locsStr, location, plant, line, linesStr, name, role, locsStr, location, plant, line, linesStr]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

@@ -10,7 +10,6 @@
 CREATE TABLE IF NOT EXISTS public.users (
   email TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  password TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('it_admin', 'admin', 'operator')),
   locations JSONB,
   location TEXT,
@@ -133,8 +132,8 @@ BEGIN
 END $$;
 
 -- Initial Seed Data
-INSERT INTO public.users (email, name, password, role, locations, location, plant, line)
-VALUES ('software.2040@pgel.in', 'IT Super Admin', 'it123', 'it_admin', NULL, NULL, NULL, NULL)
+INSERT INTO public.users (email, name, role, locations, location, plant, line)
+VALUES ('software.2040@pgel.in', 'IT Super Admin', 'it_admin', NULL, NULL, NULL, NULL)
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO public.qr_config (id, length, pattern, "sequenceValidation")

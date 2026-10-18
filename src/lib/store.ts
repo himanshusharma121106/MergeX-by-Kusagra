@@ -15,7 +15,6 @@ export type Role = "it_admin" | "admin" | "operator";
 export interface User {
   email: string;
   name: string;
-  password?: string;
   role: Role;
   locations?: string[];
   location?: string;
@@ -85,7 +84,6 @@ const defaultState: Store = {
     {
       email: "software.2040@pgel.in",
       name: "IT Super Admin",
-      password: "it123",
       role: "it_admin"
     }
   ],
@@ -289,21 +287,8 @@ export const db = {
     }
   },
 
-  login(email: string, password: string): User | null {
-    return store.users.find((x) => x.email.toLowerCase() === email.toLowerCase() && x.password === password) ?? null;
-  },
-  
-  async loginAsync(email: string, password: string): Promise<User | null> {
-    try {
-      const res = await fetch(`${API_URL}/auth/login`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
-      }).then(r => r.json());
-      if (res.success) return res.user;
-      return null;
-    } catch {
-      return store.users.find((x) => x.email.toLowerCase() === email.toLowerCase() && x.password === password) ?? null;
-    }
+  loginByEmail(email: string): User | null {
+    return store.users.find((x) => x.email.toLowerCase() === email.toLowerCase()) ?? null;
   },
 
   getConfig(location?: string, plant?: string): QrConfig { 

@@ -187,7 +187,7 @@ function UsersTab() {
   const users = useStore(() => db.listUsers());
   const h = useStore(() => db.getHierarchy());
   const [email, setEmail] = useState(""); const [name, setName] = useState("");
-  const [password, setPassword] = useState(""); const [role, setRole] = useState<"it_admin" | "admin" | "operator">("operator");
+  const [role, setRole] = useState<"it_admin" | "admin" | "operator">("operator");
   const [adminLocs, setAdminLocs] = useState<string[]>([]);
   const [opLoc, setOpLoc] = useState<string>(h.locations[0] ?? "");
   const [opPlant, setOpPlant] = useState<string>("");
@@ -200,8 +200,7 @@ function UsersTab() {
 
   const add = () => {
     if (!email.endsWith("@pgel.in")) return toast.error("Email must end with @pgel.in");
-    const safePassword = password.trim() || "otp_only";
-    const u: User = { email, name: name || email, password: safePassword, role };
+    const u: User = { email, name: name || email, role };
     if (role === "admin") u.locations = adminLocs;
     if (role === "operator") {
       if (!opLoc || !opPlant || opLinesArr.length === 0) return toast.error("Operator needs Location + Plant + at least 1 Line");
@@ -210,14 +209,13 @@ function UsersTab() {
       u.lines = opLinesArr;
     }
     db.upsertUser(u);
-    toast.success("User saved (Login via Email OTP)");
-    setEmail(""); setName(""); setPassword("");
+    toast.success("User saved (Login via Outlook OTP)");
+    setEmail(""); setName("");
   };
 
   const editUser = (u: User) => {
     setEmail(u.email);
     setName(u.name);
-    setPassword(u.password || "");
     setRole(u.role);
     if (u.role === "admin") {
       setAdminLocs(u.locations || []);
@@ -239,7 +237,7 @@ function UsersTab() {
 
   return (
     <Card>
-      <div className="grid sm:grid-cols-4 gap-3">
+      <div className="grid sm:grid-cols-3 gap-3">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Email</Label>
           <Input placeholder="name@pgel.in" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -247,10 +245,6 @@ function UsersTab() {
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Display Name</Label>
           <Input placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Password (Optional / OTP Active)</Label>
-          <Input placeholder="Optional (OTP used)" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Role</Label>
@@ -385,8 +379,8 @@ function DatabaseTab() {
   }, [activeTable]);
 
   const submitClearLogs = async () => {
-    if (clearPwd !== "himanshu@78") {
-      toast.error("Incorrect password!");
+    if (clearPwd.trim().toUpperCase() !== "DELETE") {
+      toast.error('Please type "DELETE" to confirm clearing logs.');
       setClearPwd("");
       return;
     }
@@ -522,14 +516,14 @@ function DatabaseTab() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-3">
-            <Label htmlFor="clear-pwd" className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">Enter IT Admin Password</Label>
+            <Label htmlFor="clear-pwd" className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">Type "DELETE" to confirm deletion</Label>
             <Input 
               id="clear-pwd" 
-              type="password" 
-              placeholder="••••••••" 
+              type="text" 
+              placeholder="DELETE" 
               value={clearPwd} 
               onChange={(e) => setClearPwd(e.target.value)}
-              className="h-12 border-destructive focus-visible:ring-destructive"
+              className="h-12 border-destructive focus-visible:ring-destructive font-mono"
             />
           </div>
           <DialogFooter className="gap-2 sm:gap-0">

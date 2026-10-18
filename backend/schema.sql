@@ -1,7 +1,6 @@
 CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  password VARCHAR(255) NOT NULL,
   role ENUM('it_admin', 'admin', 'operator') NOT NULL,
   locations JSON,
   location VARCHAR(255),
@@ -81,8 +80,8 @@ CREATE TABLE IF NOT EXISTS hierarchy (
 );
 
 -- Initial seed data
-INSERT IGNORE INTO users (email, name, password, role, locations, location, plant, line) VALUES
-('software.2040@pgel.in', 'IT Super Admin', 'it123', 'it_admin', NULL, NULL, NULL, NULL);
+INSERT IGNORE INTO users (email, name, role, locations, location, plant, line) VALUES
+('software.2040@pgel.in', 'IT Super Admin', 'it_admin', NULL, NULL, NULL, NULL);
 
 INSERT IGNORE INTO qr_config (id, length, pattern, sequenceValidation) VALUES
 (1, 22, 'numeric', FALSE);
