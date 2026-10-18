@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS public.users (
   lines JSONB
 );
 
+-- Ensure password column is completely dropped if table was created earlier
+ALTER TABLE public.users DROP COLUMN IF EXISTS password;
+
 -- 2. SAP Mapping Table
 CREATE TABLE IF NOT EXISTS public.sap_mapping (
   sap_code TEXT PRIMARY KEY,
