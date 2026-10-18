@@ -1,13 +1,12 @@
 const express = require('express');
 const router = express.Router();
 
-// Ensure `fetch` is available on older Node versions
+// Ensure fetch is available
 if (typeof fetch === 'undefined') {
   try {
-    // node-fetch v2/v3 compat
-    // eslint-disable-next-line global-require
-    global.fetch = require('node-fetch');
-  } catch (e) {
+    const nodeFetch = require('node-fetch');
+    global.fetch = nodeFetch;
+  } catch {
     console.warn('Global fetch is not available and node-fetch could not be loaded; remote BarTender API calls may fail.');
   }
 }

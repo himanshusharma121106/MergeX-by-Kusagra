@@ -13,9 +13,9 @@ import { Trash2, ArrowRight, Database, QrCode, CheckCircle2, AlertTriangle, Lock
 import { getPrinterConfig, setPrinterConfig } from "@/lib/store";
 import { toast } from "sonner";
 
-class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: any}> {
-  constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
-  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
+class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
+  constructor(props: {children: ReactNode}) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
   render() {
     if (this.state.hasError) return <div className="p-8 text-red-500 font-mono text-sm border border-red-500 rounded bg-red-50 m-4"><h1>Settings Error</h1><pre>{String(this.state.error?.stack || this.state.error)}</pre></div>;
     return this.props.children;

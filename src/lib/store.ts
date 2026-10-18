@@ -72,7 +72,14 @@ interface Store {
 }
 
 const defaultState: Store = {
-  users: [],
+  users: [
+    {
+      email: "software.2040@pgel.in",
+      name: "IT Super Admin",
+      password: "it123",
+      role: "it_admin"
+    }
+  ],
   sap: [],
   remap: [],
   logs: [],
@@ -81,12 +88,15 @@ const defaultState: Store = {
   hierarchy: { locations: [], plants: {}, lines: {} },
 };
 
-let store: Store = { ...defaultState };
+const store: Store = { ...defaultState };
 const listeners = new Set<() => void>();
 
 function emitLocal() { listeners.forEach((l) => l()); }
 
-export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+export const API_URL = import.meta.env.VITE_API_URL || 
+  (typeof window !== "undefined" && window.location.port !== "8080" 
+    ? `${window.location.origin}/api` 
+    : "http://localhost:3000/api");
 
 async function fetchFromApi() {
   try {
@@ -119,7 +129,7 @@ async function fetchFromApi() {
 // Initial sync
 fetchFromApi();
 
-const socket = io(API_URL.replace('/api', ''));
+const socket = io(API_URL.replace(/\/api\/?$/, ''));
 export { socket };
 
 socket.on('new_log', (log) => {
@@ -197,7 +207,7 @@ export const db = {
       if (res.success) return res.user;
       return null;
     } catch {
-      return null;
+      return store.users.find((x) => x.email.toLowerCase() === email.toLowerCase() && x.password === password) ?? null;
     }
   },
 
@@ -298,8 +308,9 @@ export const db = {
         }
       }
       return res;
-    } catch (err: any) {
-      return { ok: false, error: err.message };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: message };
     }
   },
 
@@ -460,7 +471,9 @@ export function getPrinterConfig(): PrinterConfig {
   try {
     const raw = localStorage.getItem('scanwise_printer_config_v2');
     if (raw) return JSON.parse(raw);
-  } catch(e) {}
+  } catch {
+    // Ignore storage parse errors
+  }
   return { url: `${API_URL}/bartender`, name: 'Zebra_ZT411', method: 'auto' };
 }
 

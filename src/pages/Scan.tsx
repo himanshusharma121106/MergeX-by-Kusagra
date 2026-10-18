@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { db, scopedHierarchy, parseQr, validateQr, generateNewQr } from "@/lib/store";
+import { db, scopedHierarchy, parseQr, validateQr, generateNewQr, type QrLog } from "@/lib/store";
 import { useStore } from "@/lib/useStore";
 import { useAuth } from "@/lib/auth";
 import { sounds } from "@/lib/sounds";
@@ -21,9 +21,9 @@ type Status =
   | { kind: "duplicate"; msg: string }
   | { kind: "error"; msg: string };
 
-class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: any}> {
-  constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
-  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
+class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
+  constructor(props: {children: ReactNode}) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
   render() {
     if (this.state.hasError) return <div className="p-8 text-red-500 font-mono text-sm border border-red-500 rounded bg-red-50 m-4"><h1>Scan Page Error</h1><pre>{String(this.state.error?.stack || this.state.error)}</pre></div>;
     return this.props.children;
@@ -49,13 +49,22 @@ function ScanContent() {
   const isOperator = user?.role === "operator";
 
   const [location, setLocation] = useState<string>(h.locations[0] ?? "");
-  const plants = h.plants[location] ?? [];
+  const plants = useMemo(() => h.plants[location] ?? [], [h.plants, location]);
   const [plant, setPlant] = useState<string>(plants[0] ?? "");
-  const lines = h.lines[plant] ?? [];
+  const lines = useMemo(() => h.lines[plant] ?? [], [h.lines, plant]);
   const [line, setLine] = useState<string>(lines[0] ?? "");
 
-  useEffect(() => { if (!plants.includes(plant)) setPlant(plants[0] ?? ""); /* eslint-disable-next-line */ }, [location]);
-  useEffect(() => { if (!lines.includes(line)) setLine(lines[0] ?? ""); /* eslint-disable-next-line */ }, [plant]);
+  useEffect(() => {
+    if (!plants.includes(plant)) {
+      setPlant(plants[0] ?? "");
+    }
+  }, [location, plants, plant]);
+
+  useEffect(() => {
+    if (!lines.includes(line)) {
+      setLine(lines[0] ?? "");
+    }
+  }, [plant, lines, line]);
 
   const [partCode, setPartCode] = useState<string>("");
   const [raw, setRaw] = useState("");
@@ -190,7 +199,7 @@ function ScanContent() {
     toast.success("Added to print queue");
   };
 
-  const handleReprint = (r: any) => {
+  const handleReprint = (r: QrLog) => {
     const code = r.new_qr_code || r.qr_code;
     enqueuePrint({
       db_id: r.id,
@@ -301,7 +310,7 @@ function ScanContent() {
               <div className="flex items-center gap-3 text-xs">
                 <span className="text-muted-foreground">Length {cfg.length} • {cfg.pattern}</span>
                 <div className="flex items-center gap-2 pl-3 border-l">
-                  <Select value={printMethod} onValueChange={(v: any) => setPrintMethod(v)}>
+                  <Select value={printMethod} onValueChange={(v: 'bartender'|'browser') => setPrintMethod(v)}>
                     <SelectTrigger className="h-7 text-xs border-dashed w-[160px]">
                       <SelectValue />
                     </SelectTrigger>

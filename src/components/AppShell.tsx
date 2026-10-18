@@ -35,13 +35,6 @@ export default function AppShell({ children, requireRole }: { children: ReactNod
     );
   };
 
-  const savePrinter = () => {
-    if (!pUrl || !pName) return toast.error("Printer URL and Name are required.");
-    setPrinterConfig({ url: pUrl, name: pName });
-    toast.success("Local Printer Configured!");
-    setShowPrinterSettings(false);
-  };
-
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <header className="border-b bg-card sticky top-0 z-30 shadow-[var(--shadow-sm)]">

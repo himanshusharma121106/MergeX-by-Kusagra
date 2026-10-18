@@ -17,28 +17,34 @@ const queryClient = new QueryClient();
 
 function DesktopOnlyGuard({ children }: { children: React.ReactNode }) {
   const [isMobile, setIsMobile] = useState(false);
+  const [override, setOverride] = useState(false);
 
   useEffect(() => {
     const checkMobile = () => {
       const userAgent = navigator.userAgent.toLowerCase();
       const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
-      const isSmallScreen = window.innerWidth < 1024;
-      setIsMobile(isMobileDevice || isSmallScreen);
+      const isSmallScreen = window.innerWidth < 768;
+      setIsMobile(isMobileDevice && isSmallScreen);
     };
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  if (isMobile) {
+  if (isMobile && !override) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <MonitorX className="h-16 w-16 text-destructive mb-4" />
-        <h1 className="text-2xl font-bold tracking-tight text-foreground mb-2">Desktop Access Only</h1>
-        <p className="text-muted-foreground">
-          ScanWise Pro requires a desktop environment for optimal performance, scanning, and printer integration. 
-          Please access this application from a desktop or laptop computer.
+        <h1 className="text-2xl font-bold tracking-tight text-foreground mb-2">Desktop or Tablet Recommended</h1>
+        <p className="text-muted-foreground max-w-md mb-6">
+          MergeX is optimized for industrial scanning stations, barcode scanners, and thermal label printers.
         </p>
+        <button
+          onClick={() => setOverride(true)}
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+        >
+          Continue Anyway
+        </button>
       </div>
     );
   }

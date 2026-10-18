@@ -107,10 +107,11 @@ async function sendToBarTender(job: PrintJob): Promise<void> {
       const errText = await readPrinterError(res);
       throw new Error(`Printer Error: ${errText || res.statusText}`);
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeoutId);
-    if (err.name === 'AbortError') throw new Error("Connection to printer timed out");
-    throw new Error(err.message || "Failed to reach BarTender API");
+    const errObj = err as { name?: string; message?: string };
+    if (errObj?.name === 'AbortError') throw new Error("Connection to printer timed out");
+    throw new Error(errObj?.message || "Failed to reach BarTender API");
   }
 }
 
@@ -129,8 +130,8 @@ async function pump() {
         job.status = "done";
         if (job.db_id) db.updateLogPrintStatus(job.db_id, 'success');
         emit();
-      } catch (e: any) {
-        job.error = e?.message ?? "Print failed";
+      } catch (e: unknown) {
+        job.error = e instanceof Error ? e.message : (typeof e === 'string' ? e : "Print failed");
         if (job.attempts < MAX_ATTEMPTS) {
           job.status = "queued";
           emit();

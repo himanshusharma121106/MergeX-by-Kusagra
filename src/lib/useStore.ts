@@ -6,7 +6,7 @@ export function useStore<T>(selector: () => T): T {
   useEffect(() => {
     const fn = () => setV(() => selector());
     const unsub = subscribe(fn);
-    return () => { unsub; };
+    return () => { unsub(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return v;

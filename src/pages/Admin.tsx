@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
-import { db, API_URL } from "@/lib/store";
+import { db, API_URL, User, Role } from "@/lib/store";
 import { useStore } from "@/lib/useStore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -201,7 +201,7 @@ function UsersTab() {
   const add = () => {
     if (!email.endsWith("@pgel.in")) return toast.error("Email must end with @pgel.in");
     if (!password) return toast.error("Password required");
-    const u: any = { email, name: name || email, password, role };
+    const u: User = { email, name: name || email, password, role };
     if (role === "admin") u.locations = adminLocs;
     if (role === "operator") {
       if (!opLoc || !opPlant || opLinesArr.length === 0) return toast.error("Operator needs Location + Plant + at least 1 Line");
@@ -214,7 +214,7 @@ function UsersTab() {
     setEmail(""); setName(""); setPassword("");
   };
 
-  const editUser = (u: any) => {
+  const editUser = (u: User) => {
     setEmail(u.email);
     setName(u.name);
     setPassword(u.password || "");
@@ -230,7 +230,7 @@ function UsersTab() {
     toast.success(`Editing ${u.email}`);
   };
 
-  const scopeText = (u: any) => {
+  const scopeText = (u: User) => {
     if (u.role === "it_admin") return "ALL";
     if (u.role === "admin") return u.locations?.length ? u.locations.join(", ") : "ALL locations";
     const linesStr = u.lines && u.lines.length > 0 ? u.lines.join(", ") : (u.line ?? "?");
@@ -254,7 +254,7 @@ function UsersTab() {
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Role</Label>
-          <Select value={role} onValueChange={(v) => setRole(v as any)}>
+          <Select value={role} onValueChange={(v) => setRole(v as Role)}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="it_admin">IT Super Admin</SelectItem>
@@ -325,7 +325,7 @@ function UsersTab() {
             </tr>
           </thead>
           <tbody>
-            {users.map((u: any) => (
+            {users.map((u: User) => (
               <tr key={u.email} className="border-t hover:bg-muted/30">
                 <td className="px-4 py-2 font-mono text-xs">{u.email}</td>
                 <td className="px-4 py-2 font-medium">{u.name}</td>
@@ -354,13 +354,13 @@ function DatabaseTab() {
   const [isClearing, setIsClearing] = useState(false);
   const [tables, setTables] = useState<string[]>([]);
   const [activeTable, setActiveTable] = useState<string>("");
-  const [tableData, setTableData] = useState<any[]>([]);
+  const [tableData, setTableData] = useState<Record<string, unknown>[]>([]);
   const [cols, setCols] = useState<string[]>([]);
   const [pk, setPk] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const [clearPwd, setClearPwd] = useState("");
-  const [showRowModal, setShowRowModal] = useState<any>(null);
+  const [showRowModal, setShowRowModal] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     fetch(API_URL + '/db/tables')
@@ -401,11 +401,14 @@ function DatabaseTab() {
         const res = await fetch(API_URL + `/db/data/qr_logs`).then(r => r.json());
         if(res.success) setTableData(res.rows);
       }
-    } catch (err: any) { toast.error("Failed to clear logs: " + err.message); } 
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error("Failed to clear logs: " + msg);
+    } 
     finally { setIsClearing(false); }
   };
 
-  const confirmDeleteRow = (row: any) => {
+  const confirmDeleteRow = (row: Record<string, unknown>) => {
     if (!pk || !row[pk]) return toast.error("Cannot determine primary key for this row.");
     setShowRowModal(row);
   };
@@ -414,7 +417,7 @@ function DatabaseTab() {
     if (!showRowModal) return;
     const row = showRowModal;
     try {
-      const res = await fetch(API_URL + `/db/data/${activeTable}/${pk}/${encodeURIComponent(row[pk])}`, { method: "DELETE" }).then(r=>r.json());
+      const res = await fetch(API_URL + `/db/data/${activeTable}/${pk}/${encodeURIComponent(String(row[pk]))}`, { method: "DELETE" }).then(r=>r.json());
       if (res.success) {
         toast.success("Row deleted");
         setTableData(cur => cur.filter(r => r[pk] !== row[pk]));
@@ -422,8 +425,9 @@ function DatabaseTab() {
       } else {
         toast.error("Failed to delete: " + res.error);
       }
-    } catch (err: any) {
-      toast.error("Error: " + err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error("Error: " + msg);
     }
   };
 
