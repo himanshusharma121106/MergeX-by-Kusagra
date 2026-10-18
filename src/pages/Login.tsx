@@ -10,7 +10,7 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
-import { AlertCircle, Mail, Loader2, ArrowLeft, KeyRound, CheckCircle2 } from "lucide-react";
+import { AlertCircle, Mail, Loader2, ArrowLeft, CheckCircle2 } from "lucide-react";
 import logo from "@/assets/pg-logo.png";
 
 export default function Login() {
@@ -278,30 +278,6 @@ export default function Login() {
             </div>
           )}
 
-          {/* Quick email selector for quick access */}
-          <div className="mt-6 pt-5 border-t border-slate-100">
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">
-              Registered Accounts (One-Click)
-            </p>
-            <div className="space-y-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("software.2040@pgel.in");
-                  setErr("");
-                  setInfo("");
-                  if (step === "otp") setStep("email");
-                }}
-                className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 text-slate-700 transition-colors"
-              >
-                <div className="flex items-center gap-1.5">
-                  <KeyRound className="h-3.5 w-3.5 text-blue-600" />
-                  <span className="font-semibold">IT Super Admin</span>
-                </div>
-                <span className="text-[11px] text-slate-500 font-mono">software.2040@pgel.in</span>
-              </button>
-            </div>
-          </div>
         </div>
 
         <p className="text-center text-[10px] text-slate-400 mt-4 font-medium">
