@@ -118,16 +118,16 @@ async function syncData() {
     ]);
 
     let hadCloudData = false;
-    if (sbUsers && sbUsers.length > 0) { store.users = sbUsers; hadCloudData = true; }
-    if (sbLogs && sbLogs.length > 0) { store.logs = sbLogs; hadCloudData = true; }
+    if (sbUsers) { store.users = sbUsers; hadCloudData = true; }
+    if (sbLogs) { store.logs = sbLogs; hadCloudData = true; }
     if (sbConfig) {
       store.config = sbConfig.config;
       store.plantConfigs = sbConfig.plants;
       hadCloudData = true;
     }
-    if (sbSap && sbSap.length > 0) { store.sap = sbSap; hadCloudData = true; }
-    if (sbRemap && sbRemap.length > 0) { store.remap = sbRemap; hadCloudData = true; }
-    if (sbHier && sbHier.locations.length > 0) { store.hierarchy = sbHier; hadCloudData = true; }
+    if (sbSap) { store.sap = sbSap; hadCloudData = true; }
+    if (sbRemap) { store.remap = sbRemap; hadCloudData = true; }
+    if (sbHier && sbHier.locations) { store.hierarchy = sbHier; hadCloudData = true; }
 
     if (hadCloudData) {
       rebuildCaches();
@@ -253,13 +253,7 @@ function rebuildCaches() {
 // ============ API ============
 
 export const db = {
-  // We'll simulate async login properly by making it return a promise if needed,
-  // but since Login.tsx expects sync right now, we can just fetch via API directly in Login.tsx,
-  // or use the preloaded users if they are fetched. Wait, let's keep it sync for now but fetch properly if needed.
-  // Actually, let's just make it async but wait, Login.tsx has:
-  // const u = db.login(email.trim(), password);
-  // I will need to edit Login.tsx anyway for the theme change. I'll make login async there.
-  async sendOtpAsync(email: string): Promise<{ success: boolean; message: string }> {
+  async sendOtpAsync(email: string): Promise<{ success: boolean; message: string; token?: string }> {
     try {
       const res = await fetch(`${API_URL}/auth/send-otp`, {
         method: "POST",
@@ -273,12 +267,12 @@ export const db = {
     }
   },
 
-  async verifyOtpAsync(email: string, otp: string): Promise<{ success: boolean; user?: User; message?: string }> {
+  async verifyOtpAsync(email: string, otp: string, token?: string): Promise<{ success: boolean; user?: User; message?: string }> {
     try {
       const res = await fetch(`${API_URL}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp })
+        body: JSON.stringify({ email, otp, token })
       }).then(r => r.json());
       return res;
     } catch (err: unknown) {
@@ -299,24 +293,27 @@ export const db = {
     return { ...store.config }; 
   },
   getPlantConfigs() { return [...store.plantConfigs]; },
-  setConfig(c: QrConfig) { 
+  async setConfig(c: QrConfig): Promise<boolean> { 
     store.config = { ...c }; 
     emitLocal(); 
-    updateSupabaseConfig(c);
+    const ok = await updateSupabaseConfig(c);
     fetch(`${API_URL}/config`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c) }).catch(() => {});
+    return ok;
   },
-  setPlantConfig(c: PlantQrConfig) {
+  async setPlantConfig(c: PlantQrConfig): Promise<boolean> {
     const i = store.plantConfigs.findIndex(p => p.location === c.location && p.plant === c.plant);
     if (i >= 0) store.plantConfigs[i] = c; else store.plantConfigs.push(c);
     emitLocal();
-    upsertSupabasePlantConfig(c);
+    const ok = await upsertSupabasePlantConfig(c);
     fetch(`${API_URL}/config/plant`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c) }).catch(() => {});
+    return ok;
   },
-  deletePlantConfig(location: string, plant: string) {
+  async deletePlantConfig(location: string, plant: string): Promise<boolean> {
     store.plantConfigs = store.plantConfigs.filter(p => !(p.location === location && p.plant === plant));
     emitLocal();
-    deleteSupabasePlantConfig(location, plant);
+    const ok = await deleteSupabasePlantConfig(location, plant);
     fetch(`${API_URL}/config/plant/${encodeURIComponent(location)}/${encodeURIComponent(plant)}`, { method: "DELETE" }).catch(() => {});
+    return ok;
   },
   
   async verifyConfigPassword(password: string): Promise<boolean> {
@@ -337,57 +334,64 @@ export const db = {
   },
 
   listUsers() { return [...store.users]; },
-  upsertUser(u: User) {
+  async upsertUser(u: User): Promise<boolean> {
     const i = store.users.findIndex((x) => x.email === u.email);
     if (i >= 0) store.users[i] = u; else store.users.push(u);
     emitLocal();
-    upsertSupabaseUser(u);
+    const ok = await upsertSupabaseUser(u);
     fetch(`${API_URL}/users`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(u) }).catch(() => {});
+    return ok;
   },
-  deleteUser(email: string) { 
+  async deleteUser(email: string): Promise<boolean> { 
     store.users = store.users.filter((u) => u.email !== email); 
     emitLocal(); 
-    deleteSupabaseUser(email);
+    const ok = await deleteSupabaseUser(email);
     fetch(`${API_URL}/users/${email}`, { method: "DELETE" }).catch(() => {});
+    return ok;
   },
 
   listSap() { return [...store.sap]; },
   getSapDescription(code: string): string | undefined { return sapCache.get(code); },
-  upsertSap(m: SapMapping) {
+  async upsertSap(m: SapMapping): Promise<boolean> {
     const i = store.sap.findIndex((x) => x.sap_code === m.sap_code);
     if (i >= 0) store.sap[i] = m; else store.sap.push(m);
     rebuildCaches(); emitLocal();
-    upsertSupabaseSap(m);
+    const ok = await upsertSupabaseSap(m);
     fetch(`${API_URL}/sap`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(m) }).catch(() => {});
+    return ok;
   },
-  deleteSap(sap_code: string) {
+  async deleteSap(sap_code: string): Promise<boolean> {
     store.sap = store.sap.filter((s) => s.sap_code !== sap_code);
     rebuildCaches(); emitLocal();
-    deleteSupabaseSap(sap_code);
+    const ok = await deleteSupabaseSap(sap_code);
     fetch(`${API_URL}/sap/${sap_code}`, { method: "DELETE" }).catch(() => {});
+    return ok;
   },
 
   listRemap() { return [...store.remap]; },
   getNewSap(old_sap: string): string | undefined { return remapCache.get(old_sap); },
-  upsertRemap(r: SapRemap) {
+  async upsertRemap(r: SapRemap): Promise<boolean> {
     const i = store.remap.findIndex((x) => x.old_sap === r.old_sap);
     if (i >= 0) store.remap[i] = r; else store.remap.push(r);
     rebuildCaches(); emitLocal();
-    upsertSupabaseRemap(r);
+    const ok = await upsertSupabaseRemap(r);
     fetch(`${API_URL}/remap`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) }).catch(() => {});
+    return ok;
   },
-  deleteRemap(old_sap: string) {
+  async deleteRemap(old_sap: string): Promise<boolean> {
     store.remap = store.remap.filter((r) => r.old_sap !== old_sap);
     rebuildCaches(); emitLocal();
-    deleteSupabaseRemap(old_sap);
+    const ok = await deleteSupabaseRemap(old_sap);
     fetch(`${API_URL}/remap/${old_sap}`, { method: "DELETE" }).catch(() => {});
+    return ok;
   },
 
   getHierarchy(): Hierarchy { return JSON.parse(JSON.stringify(store.hierarchy)); },
-  setHierarchy(h: Hierarchy) { 
+  async setHierarchy(h: Hierarchy): Promise<boolean> { 
     store.hierarchy = h; emitLocal(); 
-    saveSupabaseHierarchy(h);
+    const ok = await saveSupabaseHierarchy(h);
     fetch(`${API_URL}/hierarchy`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(h) }).catch(() => {});
+    return ok;
   },
 
   getLastSerial(sap: string, line: string): number | undefined { return lastSerial.get(serialKey(sap, line)); },

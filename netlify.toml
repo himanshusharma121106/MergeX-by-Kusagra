@@ -1,6 +1,17 @@
 [build]
   publish = "dist"
   command = "npm run build"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/auth/send-otp"
+  to = "/.netlify/functions/send-otp"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/verify-otp"
+  to = "/.netlify/functions/verify-otp"
+  status = 200
 
 [[redirects]]
   from = "/*"

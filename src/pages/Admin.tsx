@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
-import { db, API_URL, User, Role } from "@/lib/store";
+import { db, User, Role } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
 import { useStore } from "@/lib/useStore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -198,7 +199,7 @@ function UsersTab() {
   const toggleAdminLoc = (loc: string) => setAdminLocs((cur) => cur.includes(loc) ? cur.filter((l) => l !== loc) : [...cur, loc]);
   const toggleOpLine = (l: string) => setOpLinesArr((cur) => cur.includes(l) ? cur.filter((x) => x !== l) : [...cur, l]);
 
-  const add = () => {
+  const add = async () => {
     if (!email.endsWith("@pgel.in")) return toast.error("Email must end with @pgel.in");
     const u: User = { email, name: name || email, role };
     if (role === "admin") u.locations = adminLocs;
@@ -208,9 +209,13 @@ function UsersTab() {
       u.line = opLinesArr[0]; // fallback
       u.lines = opLinesArr;
     }
-    db.upsertUser(u);
-    toast.success("User saved (Login via Outlook OTP)");
-    setEmail(""); setName("");
+    const ok = await db.upsertUser(u);
+    if (ok) {
+      toast.success("User saved to cloud (Login via Outlook OTP)");
+      setEmail(""); setName("");
+    } else {
+      toast.error("Failed to save user to database");
+    }
   };
 
   const editUser = (u: User) => {
@@ -330,7 +335,11 @@ function UsersTab() {
                     <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => editUser(u)}>
                       <Edit className="h-4 w-4 text-blue-600" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { db.deleteUser(u.email); toast.success("Deleted"); }}>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={async () => {
+                      const ok = await db.deleteUser(u.email);
+                      if (ok) toast.success("Deleted");
+                      else toast.error("Failed to delete user");
+                    }}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
@@ -344,38 +353,49 @@ function UsersTab() {
   );
 }
 
+const KNOWN_TABLES = ['users', 'qr_logs', 'sap_mapping', 'sap_remap', 'qr_config', 'qr_config_plant', 'hierarchy'];
+
 function DatabaseTab() {
   const [isClearing, setIsClearing] = useState(false);
-  const [tables, setTables] = useState<string[]>([]);
-  const [activeTable, setActiveTable] = useState<string>("");
+  const [tables] = useState<string[]>(KNOWN_TABLES);
+  const [activeTable, setActiveTable] = useState<string>("users");
   const [tableData, setTableData] = useState<Record<string, unknown>[]>([]);
   const [cols, setCols] = useState<string[]>([]);
-  const [pk, setPk] = useState<string>("");
+  const [pk, setPk] = useState<string>("email");
   const [isLoading, setIsLoading] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const [clearPwd, setClearPwd] = useState("");
   const [showRowModal, setShowRowModal] = useState<Record<string, unknown> | null>(null);
 
-  useEffect(() => {
-    fetch(API_URL + '/db/tables')
-      .then(r => r.json())
-      .then(d => { if(d.success) setTables(d.tables); })
-      .catch(err => console.error(err));
-  }, []);
+  const loadTableData = async (tbl: string) => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.from(tbl).select('*').limit(500);
+      if (error) {
+        toast.error("Failed to load table: " + error.message);
+        setTableData([]);
+        setCols([]);
+      } else if (data && data.length > 0) {
+        setTableData(data);
+        const keys = Object.keys(data[0]);
+        setCols(keys);
+        setPk(keys.includes('email') ? 'email' : keys.includes('id') ? 'id' : keys.includes('sap_code') ? 'sap_code' : keys.includes('old_sap') ? 'old_sap' : keys[0]);
+      } else {
+        setTableData([]);
+        setCols([]);
+      }
+    } catch (e: unknown) {
+      console.error(e);
+      toast.error("Error loading table data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!activeTable) { setTableData([]); return; }
-    setIsLoading(true);
-    fetch(API_URL + `/db/data/${activeTable}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.success) {
-          setTableData(d.rows);
-          setCols(d.cols);
-          setPk(d.pk);
-        }
-      })
-      .finally(() => setIsLoading(false));
+    if (activeTable) {
+      loadTableData(activeTable);
+    }
   }, [activeTable]);
 
   const submitClearLogs = async () => {
@@ -392,32 +412,32 @@ function DatabaseTab() {
       setShowClearModal(false);
       setClearPwd("");
       if (activeTable === 'qr_logs') {
-        const res = await fetch(API_URL + `/db/data/qr_logs`).then(r => r.json());
-        if(res.success) setTableData(res.rows);
+        loadTableData('qr_logs');
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error("Failed to clear logs: " + msg);
-    } 
-    finally { setIsClearing(false); }
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   const confirmDeleteRow = (row: Record<string, unknown>) => {
-    if (!pk || !row[pk]) return toast.error("Cannot determine primary key for this row.");
+    if (!pk || row[pk] === undefined) return toast.error("Cannot determine primary key for this row.");
     setShowRowModal(row);
   };
 
   const submitDeleteRow = async () => {
-    if (!showRowModal) return;
+    if (!showRowModal || !pk) return;
     const row = showRowModal;
     try {
-      const res = await fetch(API_URL + `/db/data/${activeTable}/${pk}/${encodeURIComponent(String(row[pk]))}`, { method: "DELETE" }).then(r=>r.json());
-      if (res.success) {
-        toast.success("Row deleted");
+      const { error } = await supabase.from(activeTable).delete().eq(pk, row[pk]);
+      if (!error) {
+        toast.success("Row deleted from cloud database");
         setTableData(cur => cur.filter(r => r[pk] !== row[pk]));
         setShowRowModal(null);
       } else {
-        toast.error("Failed to delete: " + res.error);
+        toast.error("Failed to delete: " + error.message);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

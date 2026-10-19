@@ -20,6 +20,7 @@ export default function Login() {
   const [step, setStep] = useState<"email" | "otp">("email");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
+  const [otpToken, setOtpToken] = useState("");
   const [err, setErr] = useState("");
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -64,6 +65,10 @@ export default function Login() {
         return;
       }
 
+      if (res.token) {
+        setOtpToken(res.token);
+      }
+
       setStep("otp");
       setOtp("");
       setCooldown(30);
@@ -86,7 +91,7 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const res = await db.verifyOtpAsync(email.trim().toLowerCase(), otpToVerify);
+      const res = await db.verifyOtpAsync(email.trim().toLowerCase(), otpToVerify, otpToken);
       setLoading(false);
 
       if (!res.success || !res.user) {

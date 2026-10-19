@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, ArrowRight, Database, QrCode, CheckCircle2, AlertTriangle, Lock, Printer } from "lucide-react";
+import { Trash2, ArrowRight, Database, QrCode, CheckCircle2, AlertTriangle, Lock, Printer, Loader2 } from "lucide-react";
 import { getPrinterConfig, setPrinterConfig } from "@/lib/store";
 import { toast } from "sonner";
 
@@ -193,20 +193,39 @@ function UnifiedSapTab() {
     }
   };
 
-  const save = () => {
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
     if (!/^\d{10}$/.test(oldSap)) return toast.error("Old SAP must be 10 digits");
     if (!desc.trim()) return toast.error("Description is required");
     if (newSap && !/^\d{10}$/.test(newSap)) return toast.error("New SAP must be 10 digits");
     if (newSap && newSap === oldSap) return toast.error("New SAP must differ from Old SAP");
 
-    db.upsertSap({ sap_code: oldSap, description: desc.trim() });
-    if (newSap && !db.getSapDescription(newSap)) {
-      db.upsertSap({ sap_code: newSap, description: desc.trim() });
-    }
-    if (newSap) db.upsertRemap({ old_sap: oldSap, new_sap: newSap });
+    setSaving(true);
+    try {
+      // 1. Ensure oldSap is upserted in sap_mapping
+      await db.upsertSap({ sap_code: oldSap, description: desc.trim() });
 
-    toast.success("Mapping saved");
-    setOldSap(""); setDesc(""); setNewSap("");
+      // 2. If newSap provided, ensure newSap also exists in sap_mapping (Foreign Key constraint in Postgres)
+      if (newSap) {
+        const existingNewDesc = db.getSapDescription(newSap);
+        await db.upsertSap({ 
+          sap_code: newSap, 
+          description: existingNewDesc || `${desc.trim()} (Remapped)` 
+        });
+        
+        // 3. Now safe to insert into sap_remap
+        await db.upsertRemap({ old_sap: oldSap, new_sap: newSap });
+      }
+
+      toast.success("Mapping saved successfully");
+      setOldSap(""); setDesc(""); setNewSap("");
+    } catch (e: unknown) {
+      console.error("Save mapping error:", e);
+      toast.error("Failed to save mapping: " + (e instanceof Error ? e.message : "Unknown error"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const rows = sap.map((s) => ({
@@ -247,7 +266,9 @@ function UnifiedSapTab() {
             onChange={(e) => setNewSap(e.target.value.replace(/\D/g, "").slice(0, 10))} />
         </div>
         <div className="md:col-span-1">
-          <Button onClick={save} className="w-full">Save</Button>
+          <Button onClick={save} disabled={saving} className="w-full">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+          </Button>
         </div>
       </div>
 
@@ -287,10 +308,14 @@ function UnifiedSapTab() {
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">
-                    <Button size="icon" variant="ghost" onClick={() => {
-                      if (r.new_sap) db.deleteRemap(r.old_sap);
-                      db.deleteSap(r.old_sap);
-                      toast.success("Deleted");
+                    <Button size="icon" variant="ghost" onClick={async () => {
+                      try {
+                        if (r.new_sap) await db.deleteRemap(r.old_sap);
+                        await db.deleteSap(r.old_sap);
+                        toast.success("Deleted successfully");
+                      } catch {
+                        toast.error("Failed to delete mapping");
+                      }
                     }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </td>
                 </tr>
