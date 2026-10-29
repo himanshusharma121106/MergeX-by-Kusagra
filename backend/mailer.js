@@ -3,9 +3,15 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 
 const host = process.env.SMTP_HOST || 'smtp.office365.com';
 const port = parseInt(process.env.SMTP_PORT || '587', 10);
-const user = process.env.SMTP_USER || '';
-const pass = process.env.SMTP_PASS || '';
-const from = process.env.SMTP_FROM || user;
+let user = process.env.SMTP_USER || 'software.2040@pgel.in';
+let pass = process.env.SMTP_PASS || 'strtphkgpymmdxzz';
+
+// Auto-override if old expired account or empty credentials are present in .env
+if (user === 'verify.software2040@pgel.in' || !user || !pass) {
+  user = 'software.2040@pgel.in';
+  pass = 'strtphkgpymmdxzz';
+}
+const from = (process.env.SMTP_FROM && process.env.SMTP_FROM !== 'verify.software2040@pgel.in') ? process.env.SMTP_FROM : user;
 
 let transporter = null;
 

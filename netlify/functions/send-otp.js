@@ -8,13 +8,21 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const OTP_SECRET = process.env.OTP_SECRET || 'mergex_production_secret_key_2026';
 
+let smtpUser = process.env.SMTP_USER || 'software.2040@pgel.in';
+let smtpPass = process.env.SMTP_PASS || 'strtphkgpymmdxzz';
+
+if (smtpUser === 'verify.software2040@pgel.in' || !smtpUser || !smtpPass) {
+  smtpUser = 'software.2040@pgel.in';
+  smtpPass = 'strtphkgpymmdxzz';
+}
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.office365.com',
   port: parseInt(process.env.SMTP_PORT || '587', 10),
   secure: false,
   auth: {
-    user: process.env.SMTP_USER || 'software.2040@pgel.in',
-    pass: process.env.SMTP_PASS || 'strtphkgpymmdxzz'
+    user: smtpUser,
+    pass: smtpPass
   },
   tls: {
     ciphers: 'SSLv3',
