@@ -6,7 +6,7 @@ color 0a
 cd /d "%~dp0"
 
 echo ========================================================
-echo       MERGEX - LOCAL BACKEND & BARTENDER PRINTER PROXY
+echo       MERGEX - LOCAL BACKEND AND BARTENDER PRINTER PROXY
 echo ========================================================
 echo Working Directory: %CD%
 
