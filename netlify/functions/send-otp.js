@@ -13,8 +13,8 @@ const transporter = nodemailer.createTransport({
   port: parseInt(process.env.SMTP_PORT || '587', 10),
   secure: false,
   auth: {
-    user: process.env.SMTP_USER || 'verify.software2040@pgel.in',
-    pass: process.env.SMTP_PASS || 'nsxfmjjkskdrbbtt'
+    user: process.env.SMTP_USER || 'software.2040@pgel.in',
+    pass: process.env.SMTP_PASS || 'strtphkgpymmdxzz'
   },
   tls: {
     ciphers: 'SSLv3',
@@ -101,7 +101,7 @@ exports.handler = async (event) => {
     `;
 
     await transporter.sendMail({
-      from: `"MergeX Security" <${process.env.SMTP_FROM || 'verify.software2040@pgel.in'}>`,
+      from: `"MergeX Security" <${process.env.SMTP_FROM || 'software.2040@pgel.in'}>`,
       to: user.email,
       subject: `${otp} is your MergeX verification code`,
       text: `Your MergeX verification code is: ${otp}. It expires in 10 minutes.`,
