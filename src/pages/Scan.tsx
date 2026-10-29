@@ -214,8 +214,30 @@ function ScanContent() {
     toast.success("Reprint added to queue");
   };
 
+  const scanTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setRaw(val);
+
+    if (scanTimer.current) {
+      clearTimeout(scanTimer.current);
+    }
+
+    // Auto-trigger scan if scanner dumps input (length >= 8) without waiting for Tab or Enter
+    if (val.trim().length >= 8 && partCode) {
+      scanTimer.current = setTimeout(() => {
+        handleScan(val);
+      }, 120);
+    }
+  };
+
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); handleScan(raw); }
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      if (scanTimer.current) clearTimeout(scanTimer.current);
+      handleScan(raw);
+    }
   };
 
   const banner = () => {
@@ -324,7 +346,7 @@ function ScanContent() {
             </div>
             <Input
               id="qr" ref={inputRef} value={raw}
-              onChange={(e) => setRaw(e.target.value)} onKeyDown={onKey}
+              onChange={handleInputChange} onKeyDown={onKey}
               placeholder={partCode ? "Waiting for scanner..." : "Select a part code first..."}
               autoFocus autoComplete="off" spellCheck={false}
               disabled={!partCode}

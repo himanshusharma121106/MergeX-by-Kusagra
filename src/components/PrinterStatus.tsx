@@ -23,12 +23,13 @@ export default function PrinterStatus() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
       
-      const res = await fetch(`${cfg.url}/status`, {
+      const queryParam = cfg.name ? `?printer=${encodeURIComponent(cfg.name)}` : '';
+      const res = await fetch(`${cfg.url}/status${queryParam}`, {
         signal: controller.signal
       }).then(r => r.json());
       
       clearTimeout(timeoutId);
-      setStatus({ ...res, name: cfg.name });
+      setStatus({ ...res, name: res.name || cfg.name || 'Zebra Printer' });
     } catch (err) {
       setStatus(null);
     } finally {

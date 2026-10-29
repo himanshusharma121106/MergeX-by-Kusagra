@@ -86,6 +86,10 @@ async function sendToBarTender(job: PrintJob): Promise<void> {
         qrCode: job.serial_number,
         sapCode: job.part_code,
         description: job.model,
+        plant: job.plant,
+        location: job.location,
+        line: job.line,
+        timestamp: new Date(job.timestamp).toLocaleString(),
         printerName: cfg.name,
         printerConfig: cfg,
       }
