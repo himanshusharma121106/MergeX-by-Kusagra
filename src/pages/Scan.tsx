@@ -88,28 +88,69 @@ function ScanContent() {
       inputRef.current?.focus();
     };
     focus();
-    const id = window.setInterval(focus, 800);
+    const id = window.setInterval(focus, 1000);
     window.addEventListener("click", focus);
-    return () => { window.clearInterval(id); window.removeEventListener("click", focus); };
+
+    // Global scanner listener: redirect typed characters from scanner into input field
+    const onGlobalKey = (e: KeyboardEvent) => {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT")) return;
+      if (e.key.length === 1 || e.key === "Enter") {
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onGlobalKey);
+
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("click", focus);
+      window.removeEventListener("keydown", onGlobalKey);
+    };
   }, []);
 
   const parsed = useMemo(() => (raw.length >= 10 && location && plant ? parseQr(raw, location, plant) : null), [raw, location, plant]);
 
   const handleScan = async (value: string) => {
     if (busy.current) return;
-    const code = value.trim();
+    const code = value.replace(/[\r\n]/g, "").trim();
     if (!code) return;
     busy.current = true;
     try {
-      if (!partCode) { sounds.error(); setStatus({ kind: "error", msg: "Select Part Code first." }); setCounters((c) => ({ ...c, err: c.err + 1 })); return; }
+      if (!location || !plant || !line) {
+        sounds.error();
+        setStatus({ kind: "error", msg: "Location / Plant / Line not assigned." });
+        setCounters((c) => ({ ...c, err: c.err + 1 }));
+        return;
+      }
+
       const v = validateQr(code, location, plant);
-      if (v.ok === false) { sounds.error(); setStatus({ kind: "error", msg: `Invalid QR: ${v.reason}` }); setCounters((c) => ({ ...c, err: c.err + 1 })); return; }
-      if (!location || !plant || !line) { sounds.error(); setStatus({ kind: "error", msg: "Location / Plant / Line not assigned." }); setCounters((c) => ({ ...c, err: c.err + 1 })); return; }
+      if (v.ok === false) {
+        sounds.error();
+        setStatus({ kind: "error", msg: `Invalid QR: ${v.reason}` });
+        setCounters((c) => ({ ...c, err: c.err + 1 }));
+        return;
+      }
+
       const p = parseQr(code, location, plant);
 
-      if (p.sap_code !== partCode) {
+      // Auto-detect Part Code from scanned barcode if none selected
+      let activePartCode = partCode;
+      if (!activePartCode) {
+        const matchingPart = sapList.find((s) => s.sap_code === p.sap_code && !!db.getNewSap(s.sap_code) && !!s.description);
+        if (matchingPart) {
+          activePartCode = matchingPart.sap_code;
+          setPartCode(matchingPart.sap_code);
+        } else {
+          sounds.error();
+          setStatus({ kind: "error", msg: `Scanned part ${p.sap_code} is not configured or mapped in Settings.` });
+          setCounters((c) => ({ ...c, err: c.err + 1 }));
+          return;
+        }
+      }
+
+      if (p.sap_code !== activePartCode) {
         sounds.error();
-        setStatus({ kind: "error", msg: `Part mismatch — selected ${partCode}, scanned ${p.sap_code}` });
+        setStatus({ kind: "error", msg: `Part mismatch — selected ${activePartCode}, scanned ${p.sap_code}` });
         setCounters((c) => ({ ...c, err: c.err + 1 }));
         return;
       }
@@ -171,6 +212,7 @@ function ScanContent() {
         setShouldPrint(true);
       }
     } finally {
+      rawRef.current = "";
       setRaw("");
       busy.current = false;
     }
@@ -214,29 +256,53 @@ function ScanContent() {
     toast.success("Reprint added to queue");
   };
 
+  const rawRef = useRef("");
   const scanTimer = useRef<NodeJS.Timeout | null>(null);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
+    rawRef.current = val;
     setRaw(val);
 
     if (scanTimer.current) {
       clearTimeout(scanTimer.current);
+      scanTimer.current = null;
     }
 
-    // Auto-trigger scan if scanner dumps input (length >= 8) without waiting for Tab or Enter
-    if (val.trim().length >= 8 && partCode) {
+    // 1. If scanner emitted Enter / newline in the input stream, trigger immediately
+    if (val.includes("\n") || val.includes("\r")) {
+      const clean = val.replace(/[\r\n]/g, "").trim();
+      if (clean) {
+        handleScan(clean);
+      }
+      return;
+    }
+
+    const trimmed = val.trim();
+    if (!trimmed) return;
+
+    // 2. Automatic Scanner Detection without pressing Enter:
+    // If the scanned string reaches configured length, trigger quickly (50ms)
+    // Otherwise wait 220ms after the last character is received before auto-submitting
+    const expectedLen = cfg.length || 0;
+    const isTargetLength = expectedLen > 0 && trimmed.length >= expectedLen;
+    const delay = isTargetLength ? 50 : 220;
+
+    if (trimmed.length >= 6) {
       scanTimer.current = setTimeout(() => {
-        handleScan(val);
-      }, 120);
+        handleScan(rawRef.current);
+      }, delay);
     }
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" || e.key === "Tab") {
       e.preventDefault();
-      if (scanTimer.current) clearTimeout(scanTimer.current);
-      handleScan(raw);
+      if (scanTimer.current) {
+        clearTimeout(scanTimer.current);
+        scanTimer.current = null;
+      }
+      handleScan(rawRef.current || raw);
     }
   };
 
@@ -249,6 +315,7 @@ function ScanContent() {
 
   const queued = jobs.filter((j) => j.status === "queued" || j.status === "printing").length;
   const failed = jobs.filter((j) => j.status === "failed").length;
+  const printed = jobs.filter((j) => j.status === "done").length;
 
   const recent = useStore(() => db.queryLogs({ limit: 8 }).rows).filter((r) => {
     if (!user) return false;
@@ -347,18 +414,32 @@ function ScanContent() {
             <Input
               id="qr" ref={inputRef} value={raw}
               onChange={handleInputChange} onKeyDown={onKey}
-              placeholder={partCode ? "Waiting for scanner..." : "Select a part code first..."}
+              placeholder={partCode ? "Ready — Scan barcode..." : "Point scanner at QR code (Auto-detects part)..."}
               autoFocus autoComplete="off" spellCheck={false}
-              disabled={!partCode}
               className="h-16 text-2xl font-mono tracking-wider text-center"
             />
             {banner()}
 
-            <div className="grid grid-cols-3 gap-3">
-              <Counter label="OK" value={counters.ok} tone="success" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <Counter label="Scanned OK" value={counters.ok} tone="success" />
+              <Counter label="Printed" value={printed} tone="success" />
+              <Counter label="Print Failed" value={failed} tone={failed > 0 ? "error" : "success"} />
               <Counter label="Duplicate" value={counters.dup} tone="warning" />
-              <Counter label="Error" value={counters.err} tone="error" />
             </div>
+
+            {failed > 0 && (
+              <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-3.5 py-2.5 text-xs flex items-center justify-between text-destructive animate-pulse">
+                <div className="flex items-center gap-2 font-medium">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>{failed} label(s) failed to print physically! Check printer connection or model.</span>
+                </div>
+                <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => {
+                  jobs.filter(j => j.status === 'failed').forEach(j => retryJob(j.id));
+                }}>
+                  Retry All
+                </Button>
+              </div>
+            )}
 
             {lastLabel && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">

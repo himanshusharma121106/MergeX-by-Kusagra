@@ -600,7 +600,12 @@ export function getPrinterConfig(): PrinterConfig {
   } catch {
     // Ignore storage parse errors
   }
-  return { url: `${API_URL}/bartender`, name: 'Zebra_ZT411', method: 'auto' };
+  return {
+    url: `${API_URL}/bartender`,
+    name: 'auto',
+    method: 'auto',
+    labelPath: 'C:\\Users\\idu line\\Documents\\Labels'
+  };
 }
 
 export function setPrinterConfig(config: PrinterConfig) {

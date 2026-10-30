@@ -61,15 +61,59 @@ function PrinterTab() {
   const [pMethod, setPMethod] = useState("auto");
   const [pLabel, setPLabel] = useState("");
   const [pExe, setPExe] = useState("");
+  const [detectedPrinters, setDetectedPrinters] = useState<string[]>([]);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [detectInfo, setDetectInfo] = useState<string | null>(null);
 
   useEffect(() => {
     const cfg = getPrinterConfig();
     setPUrl(cfg.url || "http://localhost:3000/api/bartender");
-    setPName(cfg.name || "");
+    setPName(cfg.name || "auto");
     setPMethod(cfg.method || "auto");
-    setPLabel(cfg.labelPath || "");
+    setPLabel(cfg.labelPath || "C:\\Users\\idu line\\Documents\\Labels");
     setPExe(cfg.exePath || "");
   }, []);
+
+  const handleAutoDetect = async () => {
+    setIsDetecting(true);
+    setDetectInfo(null);
+    try {
+      const url = pUrl.replace(/\/+$/, "");
+      const [statusRes, printersRes] = await Promise.all([
+        fetch(`${url}/status`).then(r => r.json()).catch(() => null),
+        fetch(`${url}/printers`).then(r => r.json()).catch(() => null)
+      ]);
+
+      if (!statusRes && !printersRes) {
+        toast.error("Could not connect to backend proxy on " + url);
+        return;
+      }
+
+      const available = printersRes?.printers?.map((p: { Name: string }) => p.Name) || [];
+      setDetectedPrinters(available);
+
+      const recommended = printersRes?.recommended || statusRes?.name;
+      if (recommended) {
+        setPName(recommended);
+      }
+      if (statusRes?.labelPath) {
+        setPLabel(statusRes.labelPath);
+      }
+      if (statusRes?.exePath) {
+        setPExe(statusRes.exePath);
+      }
+
+      setDetectInfo(
+        `Found printer "${recommended || 'Zebra'}" and template "${statusRes?.labelPath || 'C:\\Users\\idu line\\Documents\\Labels'}"`
+      );
+      toast.success("Auto-detected printer & label template!");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error("Auto-detect failed: " + msg);
+    } finally {
+      setIsDetecting(false);
+    }
+  };
 
   const savePrinter = () => {
     if (!pUrl || !pName) return toast.error("Printer URL and Name are required.");
@@ -84,6 +128,26 @@ function PrinterTab() {
         These settings are saved locally to your browser and override global backend settings.
       </div>
       <div className="py-2 space-y-4 max-w-lg">
+        <div className="flex items-center justify-between gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleAutoDetect}
+            disabled={isDetecting}
+            className="w-full text-xs font-semibold"
+          >
+            {isDetecting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Printer className="h-3.5 w-3.5 mr-1.5" />}
+            Auto-Detect Installed Printers & BarTender
+          </Button>
+        </div>
+
+        {detectInfo && (
+          <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2.5">
+            ✓ {detectInfo}
+          </div>
+        )}
+
         <div className="space-y-2">
           <Label htmlFor="printer-url">Local Proxy URL</Label>
           <Input 
@@ -99,12 +163,23 @@ function PrinterTab() {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="printer-name">Printer Name</Label>
-            <Input 
-              id="printer-name" 
-              value={pName} 
-              onChange={(e) => setPName(e.target.value)}
-              placeholder="Zebra_ZT411" 
-            />
+            {detectedPrinters.length > 0 ? (
+              <Select value={pName} onValueChange={setPName}>
+                <SelectTrigger id="printer-name"><SelectValue placeholder="Select printer" /></SelectTrigger>
+                <SelectContent>
+                  {detectedPrinters.map(p => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input 
+                id="printer-name" 
+                value={pName} 
+                onChange={(e) => setPName(e.target.value)}
+                placeholder="auto (Auto-detect any connected printer)" 
+              />
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="printer-method">Print Method</Label>
@@ -123,14 +198,14 @@ function PrinterTab() {
           <div className="space-y-4 pt-2 border-t mt-4">
             <Label className="text-xs font-semibold text-primary">CMD Printing Settings</Label>
             <div className="space-y-2">
-              <Label htmlFor="printer-label">BarTender Label Path</Label>
+              <Label htmlFor="printer-label">BarTender Label Path / Folder</Label>
               <Input 
                 id="printer-label" 
                 value={pLabel} 
                 onChange={(e) => setPLabel(e.target.value)}
-                placeholder="C:\\Labels\\Template.btw" 
+                placeholder="C:\\Users\\idu line\\Documents\\Labels" 
               />
-              <p className="text-[10px] text-muted-foreground">Absolute path to the BarTender document on the PC running the proxy.</p>
+              <p className="text-[10px] text-muted-foreground">Path or folder containing your .btw template on the line computer.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="printer-exe">BarTender Executable Path (Optional)</Label>
@@ -140,7 +215,7 @@ function PrinterTab() {
                 onChange={(e) => setPExe(e.target.value)}
                 placeholder="C:\\Program Files\\Seagull\\BarTender 2022\\bartend.exe" 
               />
-              <p className="text-[10px] text-muted-foreground">Leave blank to let the system auto-detect standard BarTender installations.</p>
+              <p className="text-[10px] text-muted-foreground">Leave blank to auto-detect any BarTender installation (2016-2024).</p>
             </div>
           </div>
         )}

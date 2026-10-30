@@ -18,30 +18,38 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') 
 )
 
 :: 2. Auto-detect BarTender Label Template (.btw)
-if exist "%CD%\Templatee.btw" (
-    set "BARTENDER_LABEL_PATH=%CD%\Templatee.btw"
-) else if exist "%CD%\Template.btw" (
-    set "BARTENDER_LABEL_PATH=%CD%\Template.btw"
-) else if exist "C:\Labels\Templatee.btw" (
-    set "BARTENDER_LABEL_PATH=C:\Labels\Templatee.btw"
-) else if exist "C:\Labels\Template.btw" (
-    set "BARTENDER_LABEL_PATH=C:\Labels\Template.btw"
-) else if exist "C:\Users\idu line\Documents\Labels\Templatee.btw" (
-    set "BARTENDER_LABEL_PATH=C:\Users\idu line\Documents\Labels\Templatee.btw"
-) else if exist "C:\Users\%USERNAME%\Documents\Labels\Templatee.btw" (
-    set "BARTENDER_LABEL_PATH=C:\Users\%USERNAME%\Documents\Labels\Templatee.btw"
-) else (
-    set "BARTENDER_LABEL_PATH=C:\Labels\Templatee.btw"
+set "BARTENDER_LABEL_PATH="
+if exist "C:\Users\idu line\Documents\Labels\*.btw" (
+    for %%f in ("C:\Users\idu line\Documents\Labels\*.btw") do if not defined BARTENDER_LABEL_PATH set "BARTENDER_LABEL_PATH=%%f"
+)
+if not defined BARTENDER_LABEL_PATH if exist "C:\Users\%USERNAME%\Documents\Labels\*.btw" (
+    for %%f in ("C:\Users\%USERNAME%\Documents\Labels\*.btw") do if not defined BARTENDER_LABEL_PATH set "BARTENDER_LABEL_PATH=%%f"
+)
+if not defined BARTENDER_LABEL_PATH if exist "%CD%\labels\*.btw" (
+    for %%f in ("%CD%\labels\*.btw") do if not defined BARTENDER_LABEL_PATH set "BARTENDER_LABEL_PATH=%%f"
+)
+if not defined BARTENDER_LABEL_PATH if exist "%CD%\*.btw" (
+    for %%f in ("%CD%\*.btw") do if not defined BARTENDER_LABEL_PATH set "BARTENDER_LABEL_PATH=%%f"
+)
+if not defined BARTENDER_LABEL_PATH if exist "C:\Labels\*.btw" (
+    for %%f in ("C:\Labels\*.btw") do if not defined BARTENDER_LABEL_PATH set "BARTENDER_LABEL_PATH=%%f"
+)
+if not defined BARTENDER_LABEL_PATH (
+    set "BARTENDER_LABEL_PATH=C:\Users\idu line\Documents\Labels\Template.btw"
 )
 
-:: 3. Auto-detect BarTender Executable (bartend.exe)
-if exist "C:\Program Files\Seagull\BarTender 2022\bartend.exe" (
-    set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender 2022\bartend.exe"
-) else if exist "C:\Program Files\Seagull\BarTender Suite\bartend.exe" (
-    set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender Suite\bartend.exe"
-) else if exist "C:\Program Files\Seagull\BarTender 2021\bartend.exe" (
-    set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender 2021\bartend.exe"
-) else (
+:: 3. Auto-detect BarTender Executable (bartend.exe) across all versions
+set "BARTENDER_EXE_PATH="
+if exist "C:\Program Files\Seagull\BarTender 2024\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender 2024\bartend.exe"
+if not defined BARTENDER_EXE_PATH if exist "C:\Program Files\Seagull\BarTender 2023\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender 2023\bartend.exe"
+if not defined BARTENDER_EXE_PATH if exist "C:\Program Files\Seagull\BarTender 2022\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender 2022\bartend.exe"
+if not defined BARTENDER_EXE_PATH if exist "C:\Program Files\Seagull\BarTender 2021\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender 2021\bartend.exe"
+if not defined BARTENDER_EXE_PATH if exist "C:\Program Files\Seagull\BarTender 2019\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender 2019\bartend.exe"
+if not defined BARTENDER_EXE_PATH if exist "C:\Program Files\Seagull\BarTender 2016\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender 2016\bartend.exe"
+if not defined BARTENDER_EXE_PATH if exist "C:\Program Files\Seagull\BarTender Suite\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files\Seagull\BarTender Suite\bartend.exe"
+if not defined BARTENDER_EXE_PATH if exist "C:\Program Files (x86)\Seagull\BarTender Suite\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files (x86)\Seagull\BarTender Suite\bartend.exe"
+if not defined BARTENDER_EXE_PATH if exist "C:\Program Files (x86)\Seagull\BarTender 2022\bartend.exe" set "BARTENDER_EXE_PATH=C:\Program Files (x86)\Seagull\BarTender 2022\bartend.exe"
+if not defined BARTENDER_EXE_PATH (
     set "BARTENDER_EXE_PATH=bartend.exe"
 )
 

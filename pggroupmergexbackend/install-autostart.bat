@@ -1,11 +1,11 @@
 @echo off
-title Setup MergeX Silent Background & AutoStart Service
+title Setup MergeX Silent Background and AutoStart Service
 color 0a
 
 cd /d "%~dp0"
 
 echo ========================================================
-echo       MERGEX - SILENT BACKGROUND & AUTOSTART SETUP
+echo       MERGEX - SILENT BACKGROUND AND AUTOSTART SETUP
 echo ========================================================
 echo Backend Directory: %CD%
 echo.
@@ -21,38 +21,34 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-:: 2. Auto-create run-silent.vbs in backend folder
-echo [1/3] Generating silent runner script...
+:: 2. Ensure run-silent.vbs exists in current backend folder
+echo [1/3] Preparing silent background runner...
+set "VBS_RUNNER=%CD%\run-silent.vbs"
+
 (
 echo Set WshShell = CreateObject("WScript.Shell"^)
 echo Set fso = CreateObject("Scripting.FileSystemObject"^)
-echo strPath = "%CD%"
+echo strPath = fso.GetParentFolderName(WScript.ScriptFullName^)
 echo WshShell.CurrentDirectory = strPath
-echo WshShell.Run "cmd /c """ ^& strPath ^& "\start-backend.bat""", 0, False
+echo WshShell.Run "cmd.exe /c """ ^& strPath ^& "\start-backend.bat""", 0, False
 echo Set WshShell = Nothing
 echo Set fso = Nothing
-) > "%CD%\run-silent.vbs"
+) > "%VBS_RUNNER%"
 
-:: 3. Register to Windows Startup folder (Runs silently whenever PC boots)
+:: 3. Register shortcut in Windows Startup Folder
 echo [2/3] Adding to Windows Startup Apps...
 set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
 if exist "%STARTUP_FOLDER%" (
-    (
-    echo Set WshShell = CreateObject("WScript.Shell"^)
-    echo strPath = "%CD%"
-    echo WshShell.CurrentDirectory = strPath
-    echo WshShell.Run "cmd /c """ ^& strPath ^& "\start-backend.bat""", 0, False
-    echo Set WshShell = Nothing
-    ) > "%STARTUP_FOLDER%\MergeX-Printer-Proxy.vbs"
+    powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%STARTUP_FOLDER%\MergeX-Backend.lnk'); $s.TargetPath = 'wscript.exe'; $s.Arguments = '\"%VBS_RUNNER%\"'; $s.WorkingDirectory = '%CD%'; $s.Save()" >nul 2>nul
     echo [OK] Successfully registered in Windows Startup Apps!
 ) else (
-    echo [WARNING] Startup folder not found, skipping startup shortcut.
+    echo [WARNING] Startup folder not found.
 )
 
 :: 4. Start the backend silently right now
 echo [3/3] Starting backend silently in the background...
-wscript.exe "%CD%\run-silent.vbs"
+start "" wscript.exe "%VBS_RUNNER%"
 
 echo.
 echo ========================================================
