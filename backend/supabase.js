@@ -3,8 +3,8 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config();
 
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://qhuytbsufhmzxyzbncdf.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_tXh1X0eY0szqrjZQAx6WNg_eMIuxo52';
 
 let supabase = null;
 let isConnected = false;

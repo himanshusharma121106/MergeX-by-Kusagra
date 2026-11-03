@@ -158,18 +158,37 @@ async function fetchFromApi() {
       fetch(`${API_URL}/logs?limit=500`).then(r => r.json()).catch(() => null)
     ]);
 
-    if (cfgRes?.success) {
+    let updated = false;
+    if (cfgRes?.success && cfgRes.config) {
       store.config = cfgRes.config;
-      store.plantConfigs = cfgRes.plants || [];
+      if (cfgRes.plants && cfgRes.plants.length > 0) store.plantConfigs = cfgRes.plants;
+      updated = true;
     }
-    if (usersRes?.success) store.users = usersRes.users;
-    if (sapRes?.success) store.sap = sapRes.sap;
-    if (remapRes?.success) store.remap = remapRes.remap;
-    if (hierRes?.success) store.hierarchy = hierRes.hierarchy;
-    if (logsRes?.success) store.logs = logsRes.rows;
+    if (usersRes?.success && Array.isArray(usersRes.users) && usersRes.users.length > 0) {
+      store.users = usersRes.users;
+      updated = true;
+    }
+    if (sapRes?.success && Array.isArray(sapRes.sap) && sapRes.sap.length > 0) {
+      store.sap = sapRes.sap;
+      updated = true;
+    }
+    if (remapRes?.success && Array.isArray(remapRes.remap) && remapRes.remap.length > 0) {
+      store.remap = remapRes.remap;
+      updated = true;
+    }
+    if (hierRes?.success && hierRes.hierarchy && Array.isArray(hierRes.hierarchy.locations) && hierRes.hierarchy.locations.length > 0) {
+      store.hierarchy = hierRes.hierarchy;
+      updated = true;
+    }
+    if (logsRes?.success && Array.isArray(logsRes.rows) && logsRes.rows.length > 0) {
+      store.logs = logsRes.rows;
+      updated = true;
+    }
     
-    rebuildCaches();
-    emitLocal();
+    if (updated) {
+      rebuildCaches();
+      emitLocal();
+    }
   } catch {
     // Backend offline is expected when running serverless or frontend-only
   }
