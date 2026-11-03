@@ -25,7 +25,9 @@ export default function PrinterStatus() {
       
       const queryParam = cfg.name ? `?printer=${encodeURIComponent(cfg.name)}` : '';
       const res = await fetch(`${cfg.url}/status${queryParam}`, {
-        signal: controller.signal
+        signal: controller.signal,
+        // @ts-ignore Chrome Private Network Access compatibility
+        targetAddressSpace: 'local',
       }).then(r => r.json());
       
       clearTimeout(timeoutId);

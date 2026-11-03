@@ -33,6 +33,18 @@ const io = new Server(server, {
   }
 });
 
+// Enable Chrome Private Network Access (PNA) so cloud sites (e.g. Netlify) can interact with local companion service
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use(cors());
 app.use(express.json());
 app.use(helmet({
