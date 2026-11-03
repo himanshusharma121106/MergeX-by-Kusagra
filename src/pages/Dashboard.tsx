@@ -11,14 +11,15 @@ export default function Dashboard() {
   const fullStats = useStore(() => db.stats());
   // For non-it_admin, recompute simple stats from filtered logs
   const filteredAll = user ? allRecent.filter((r) => canAccessLog(user, r)) : [];
+  const printedOnly = filteredAll.filter((r) => r.print_status === "success");
   const todayStart = new Date(); todayStart.setHours(0,0,0,0);
   const stats = user?.role === "it_admin" ? fullStats : {
-    total: filteredAll.length,
-    today: filteredAll.filter((l) => l.timestamp >= todayStart.getTime()).length,
-    week: filteredAll.filter((l) => l.timestamp >= todayStart.getTime() - 6*86400000).length,
-    byLine: aggregate(filteredAll, "line"),
-    byUser: aggregate(filteredAll, "user_email"),
-    byPlant: aggregate(filteredAll, "plant"),
+    total: printedOnly.length,
+    today: printedOnly.filter((l) => l.timestamp >= todayStart.getTime()).length,
+    week: printedOnly.filter((l) => l.timestamp >= todayStart.getTime() - 6*86400000).length,
+    byLine: aggregate(printedOnly, "line"),
+    byUser: aggregate(printedOnly, "user_email"),
+    byPlant: aggregate(printedOnly, "plant"),
   };
 
   function aggregate(rows: typeof filteredAll, key: "line" | "user_email" | "plant") {

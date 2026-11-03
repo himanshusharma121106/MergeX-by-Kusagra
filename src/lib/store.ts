@@ -269,11 +269,14 @@ function rebuildCaches() {
   store.logs.forEach((l) => { 
     recentQr.add(l.qr_code); 
     if (l.new_qr_code) recentQr.add(l.new_qr_code);
-    const k = serialKey(l.sap_code, l.line);
-    const n = parseInt(l.serial, 10);
-    if (!isNaN(n)) {
-      const cur = lastSerial.get(k);
-      if (cur === undefined || n > cur) lastSerial.set(k, n);
+    // Only count successfully printed logs toward the last serial counter
+    if (l.print_status === 'success') {
+      const k = serialKey(l.sap_code, l.line);
+      const n = parseInt(l.serial, 10);
+      if (!isNaN(n)) {
+        const cur = lastSerial.get(k);
+        if (cur === undefined || n > cur) lastSerial.set(k, n);
+      }
     }
   });
 }
@@ -497,10 +500,32 @@ export const db = {
   getLastSerial(sap: string, line: string): number | undefined { return lastSerial.get(serialKey(sap, line)); },
 
   async insertLogAsync(log: Omit<QrLog, "id" | "timestamp">): Promise<{ ok: true; log: QrLog } | { ok: false; error: string; detail?: string }> {
-    // 1. Direct Supabase cloud insert when running in Cloud / Netlify
+    const cleanQr = log.qr_code.trim().toLowerCase();
+
+    // 1. Strict Duplicate Check against database cache
+    const dup = store.logs.find(
+      (l) => l.qr_code.trim().toLowerCase() === cleanQr ||
+             (l.new_qr_code && l.new_qr_code.trim().toLowerCase() === cleanQr)
+    );
+    if (dup) {
+      const scanTime = new Date(dup.timestamp).toLocaleTimeString();
+      const statusText = dup.print_status === "success" ? "Printed" : `Print ${dup.print_status || "Pending"}`;
+      return {
+        ok: false,
+        error: "DUPLICATE",
+        detail: `Barcode was already scanned at ${scanTime} [${statusText}] by ${dup.user_email}`
+      };
+    }
+
+    const logToSave = {
+      ...log,
+      print_status: log.print_status || "pending" as const
+    };
+
+    // 2. Direct Supabase cloud insert when running in Cloud / Netlify
     if (isCloudOrigin) {
       try {
-        const saved = await insertSupabaseLog({ ...log, timestamp: Date.now() });
+        const saved = await insertSupabaseLog({ ...logToSave, timestamp: Date.now() });
         if (saved) {
           if (!store.logs.some((l) => l.id === saved.id)) {
             store.logs.unshift(saved);
@@ -515,7 +540,7 @@ export const db = {
     } else {
       // Running locally: try backend API first
       try {
-        const res = await fetch(`${API_URL}/logs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(log) }).then(r => r.json());
+        const res = await fetch(`${API_URL}/logs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(logToSave) }).then(r => r.json());
         if (res.ok) {
           if (!store.logs.some((l) => l.id === res.log.id)) {
             store.logs.unshift(res.log);
@@ -523,13 +548,15 @@ export const db = {
             emitLocal();
           }
           return res;
+        } else if (res.error === "DUPLICATE") {
+          return { ok: false, error: "DUPLICATE", detail: "Barcode already exists in database" };
         }
       } catch {
         // Fallback to Supabase cloud insert
       }
 
       try {
-        const saved = await insertSupabaseLog({ ...log, timestamp: Date.now() });
+        const saved = await insertSupabaseLog({ ...logToSave, timestamp: Date.now() });
         if (saved) {
           if (!store.logs.some((l) => l.id === saved.id)) {
             store.logs.unshift(saved);
@@ -543,10 +570,10 @@ export const db = {
 
     // Fallback in-memory
     const localLog: QrLog = {
-      ...log,
+      ...logToSave,
       id: Date.now(),
       timestamp: Date.now(),
-      print_status: "success",
+      print_status: logToSave.print_status || "pending",
     };
     store.logs.unshift(localLog);
     rebuildCaches();
@@ -563,6 +590,13 @@ export const db = {
 
   async updateLogPrintStatus(id: number, status: 'success' | 'failed') {
     updateSupabaseLogStatus(id, status);
+    // Also update local cache immediately so UI and stats update in real-time
+    const target = store.logs.find(l => l.id === id);
+    if (target) {
+      target.print_status = status;
+      rebuildCaches();
+      emitLocal();
+    }
     if (!isCloudOrigin) {
       fetch(`${API_URL}/logs/${id}/status`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
@@ -594,6 +628,7 @@ export const db = {
   },
 
   stats() {
+    // Only count successfully printed logs in production totals
     const logs = store.logs.filter((l) => l.print_status === 'success');
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const today = logs.filter((l) => l.timestamp >= todayStart.getTime()).length;
@@ -606,7 +641,16 @@ export const db = {
       byLocation.set(l.location, (byLocation.get(l.location) ?? 0) + 1);
     });
     const arr = (m: Map<string, number>) => [...m.entries()].map(([k, v]) => ({ key: k, count: v }));
-    return { total: logs.length, today, week, byLine: arr(byLine), byUser: arr(byUser), byPlant: arr(byPlant), byLocation: arr(byLocation) };
+    return { 
+      total: logs.length, 
+      today, 
+      week, 
+      byLine: arr(byLine), 
+      byUser: arr(byUser), 
+      byPlant: arr(byPlant), 
+      byLocation: arr(byLocation),
+      unprinted: store.logs.filter((l) => l.print_status !== 'success').length
+    };
   },
 };
 
@@ -614,10 +658,74 @@ export const db = {
 export interface ParsedQr { sap_code: string; month: string; year: string; week: string; serial: string; }
 
 export function validateQr(raw: string, location: string, plant: string): { ok: true } | { ok: false; reason: string } {
+  const code = (raw || "").trim();
+  if (!code) return { ok: false, reason: "Empty input — please scan a barcode" };
+
   const cfg = db.getConfig(location, plant);
-  if (!raw) return { ok: false, reason: "Empty input" };
-  const minLen = (cfg.prefix?.length || 0) + (cfg.sap_length || 10);
-  if (raw.length < minLen) return { ok: false, reason: `Length must be at least ${minLen} for Part Code (got ${raw.length})` };
+  const prefix = cfg.prefix ? cfg.prefix.trim() : "";
+  const suffix = cfg.suffix ? cfg.suffix.trim() : "";
+  const expectedSapLen = cfg.sap_length || 10;
+  const minRequiredLen = prefix.length + suffix.length + expectedSapLen;
+
+  // 1. Minimum length check
+  if (code.length < minRequiredLen) {
+    return { 
+      ok: false, 
+      reason: `Wrong Format: Barcode too short (${code.length} chars). Minimum ${minRequiredLen} chars required.` 
+    };
+  }
+
+  // 2. Exact configured length check (if cfg.length > 0)
+  if (cfg.length && cfg.length > 0 && code.length !== cfg.length) {
+    return {
+      ok: false,
+      reason: `Wrong Format: Expected length of ${cfg.length} characters, but scanned barcode has ${code.length} characters.`
+    };
+  }
+
+  // 3. Prefix matching validation
+  if (prefix && !code.startsWith(prefix)) {
+    return {
+      ok: false,
+      reason: `Wrong Format: Expected prefix '${prefix}', but scanned code starts with '${code.slice(0, prefix.length)}'.`
+    };
+  }
+
+  // 4. Suffix matching validation
+  if (suffix && !code.endsWith(suffix)) {
+    return {
+      ok: false,
+      reason: `Wrong Format: Expected suffix '${suffix}', but scanned code ends with '${code.slice(-suffix.length)}'.`
+    };
+  }
+
+  // 5. Pattern Validation (numeric vs alphanumeric)
+  const body = code.slice(prefix.length, suffix ? code.length - suffix.length : undefined);
+  if (cfg.pattern === "numeric") {
+    if (!/^\d+$/.test(body)) {
+      return {
+        ok: false,
+        reason: "Wrong Format: Purely numeric barcode expected (0-9). Found invalid alphabetic or special characters."
+      };
+    }
+  } else if (cfg.pattern === "alphanumeric") {
+    if (!/^[a-zA-Z0-9_\-\.\/]+$/.test(body)) {
+      return {
+        ok: false,
+        reason: "Wrong Format: Barcode contains unrecognized or invalid characters."
+      };
+    }
+  }
+
+  // 6. Extracted SAP Code validity check
+  const sap = body.slice(0, expectedSapLen);
+  if (!sap || sap.length < expectedSapLen) {
+    return {
+      ok: false,
+      reason: `Wrong Format: Cannot extract valid ${expectedSapLen}-digit Part Code from barcode.`
+    };
+  }
+
   return { ok: true };
 }
 

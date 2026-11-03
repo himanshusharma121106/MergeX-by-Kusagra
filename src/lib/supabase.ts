@@ -99,7 +99,7 @@ export async function insertSupabaseLog(log: Omit<QrLog, "id">): Promise<QrLog |
         line: log.line,
         user_email: log.user_email,
         timestamp: log.timestamp || Date.now(),
-        print_status: log.print_status || "success",
+        print_status: log.print_status || "pending",
       })
       .select()
       .single();

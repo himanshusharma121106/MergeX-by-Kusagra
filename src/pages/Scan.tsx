@@ -163,17 +163,37 @@ function ScanContent() {
         return;
       }
 
+      // 1. DUPLICATE CHECK: Verify if this barcode has already been scanned
+      const allLogs = db.queryLogs({ limit: 2000 }).rows;
+      const cleanCode = code.toLowerCase();
+      const existing = allLogs.find(
+        (l) => l.qr_code.trim().toLowerCase() === cleanCode ||
+               (l.new_qr_code && l.new_qr_code.trim().toLowerCase() === cleanCode)
+      );
+      if (existing) {
+        sounds.warn();
+        const scanTime = new Date(existing.timestamp).toLocaleTimeString();
+        const printInfo = existing.print_status === 'success' ? 'Printed' : `Print ${existing.print_status || 'Pending'}`;
+        setStatus({
+          kind: "duplicate",
+          msg: `⚠️ DUPLICATE QR DETECTED: Barcode already scanned at ${scanTime} [${printInfo}] by ${existing.user_email}`
+        });
+        setCounters((c) => ({ ...c, dup: c.dup + 1 }));
+        return;
+      }
+
+      // 2. STRICT FORMAT VALIDATION (Length, Pattern, Prefix, Suffix, SAP Length)
       const v = validateQr(code, location, plant);
       if (v.ok === false) {
         sounds.error();
-        setStatus({ kind: "error", msg: `Invalid QR: ${v.reason}` });
+        setStatus({ kind: "error", msg: `❌ FORMAT ERROR: ${v.reason}` });
         setCounters((c) => ({ ...c, err: c.err + 1 }));
         return;
       }
 
       const p = parseQr(code, location, plant);
 
-      // Auto-detect Part Code from scanned barcode if none selected
+      // 3. Auto-detect Part Code & Validate Mapping
       let activePartCode = partCode;
       if (!activePartCode) {
         const matchingPart = sapList.find((s) => s.sap_code === p.sap_code && !!db.getNewSap(s.sap_code) && !!s.description);
@@ -182,7 +202,7 @@ function ScanContent() {
           setPartCode(matchingPart.sap_code);
         } else {
           sounds.error();
-          setStatus({ kind: "error", msg: `Scanned part ${p.sap_code} is not configured or mapped in Settings.` });
+          setStatus({ kind: "error", msg: `❌ WRONG PART FORMAT: Scanned SAP code '${p.sap_code}' is not mapped or recognized in Settings.` });
           setCounters((c) => ({ ...c, err: c.err + 1 }));
           return;
         }
@@ -190,7 +210,7 @@ function ScanContent() {
 
       if (p.sap_code !== activePartCode) {
         sounds.error();
-        setStatus({ kind: "error", msg: `Part mismatch — selected ${activePartCode}, scanned ${p.sap_code}` });
+        setStatus({ kind: "error", msg: `❌ PART MISMATCH: Selected '${activePartCode}', but scanned barcode has '${p.sap_code}'` });
         setCounters((c) => ({ ...c, err: c.err + 1 }));
         return;
       }
@@ -198,14 +218,14 @@ function ScanContent() {
       const newSap = db.getNewSap(p.sap_code);
       if (!newSap) {
         sounds.error();
-        setStatus({ kind: "error", msg: `SAP mapping incomplete — no New SAP mapped for ${p.sap_code}. Configure in Settings.` });
+        setStatus({ kind: "error", msg: `❌ UNMAPPED PART: No target New SAP code mapped for '${p.sap_code}'. Configure in Settings.` });
         setCounters((c) => ({ ...c, err: c.err + 1 }));
         return;
       }
       const description = db.getSapDescription(newSap) ?? db.getSapDescription(p.sap_code);
       if (!description) {
         sounds.error();
-        setStatus({ kind: "error", msg: `SAP mapping incomplete — description missing for ${newSap}.` });
+        setStatus({ kind: "error", msg: `❌ INCOMPLETE MAPPING: Description missing for ${newSap}.` });
         setCounters((c) => ({ ...c, err: c.err + 1 }));
         return;
       }
@@ -214,6 +234,7 @@ function ScanContent() {
       const newQrData = generateNewQr(newSap, lastSerialNum, location, plant);
       const newQr = newQrData.qr;
 
+      // 4. Save with 'pending' print status until printed successfully
       const res = await db.insertLogAsync({
         qr_code: code,
         new_qr_code: newQr,
@@ -222,24 +243,24 @@ function ScanContent() {
         description,
         month: newQrData.month, year: newQrData.year, week: newQrData.week, serial: newQrData.serial,
         plant, location, line, user_email: user!.email,
+        print_status: 'pending'
       });
 
       if (res.ok === false) {
         if (res.error === "DUPLICATE") {
           sounds.warn();
-          setStatus({ kind: "duplicate", msg: `Duplicate QR: ${code}` });
+          setStatus({ kind: "duplicate", msg: `⚠️ DUPLICATE QR: ${res.detail || code}` });
           setCounters((c) => ({ ...c, dup: c.dup + 1 }));
         } else {
           sounds.error();
-          setStatus({ kind: "error", msg: `Sequence break — ${res.detail ?? ""}` });
+          setStatus({ kind: "error", msg: `❌ Sequence break — ${res.detail ?? ""}` });
           setCounters((c) => ({ ...c, err: c.err + 1 }));
         }
         return;
       }
 
       sounds.success();
-      setStatus({ kind: "success", msg: `Saved ${newQr}` });
-      setCounters((c) => ({ ...c, ok: c.ok + 1 }));
+      setStatus({ kind: "success", msg: `Generated ${newQr} (Printing...)` });
 
       const ts = res.log!.timestamp;
       const img = await QRCode.toDataURL(newQr, { errorCorrectionLevel: "H", margin: 2, width: 320, color: { dark: "#000000", light: "#ffffff" } });
@@ -464,10 +485,10 @@ function ScanContent() {
             {banner()}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <Counter label="Scanned OK" value={counters.ok} tone="success" />
-              <Counter label="Printed" value={printed} tone="success" />
+              <Counter label="Printed (Verified)" value={printed} tone="success" />
+              <Counter label="Print Queue" value={jobs.filter(j => j.status === 'queued' || j.status === 'printing').length} tone="neutral" />
               <Counter label="Print Failed" value={failed} tone={failed > 0 ? "error" : "success"} />
-              <Counter label="Duplicate" value={counters.dup} tone="warning" />
+              <Counter label="Duplicate / Error" value={counters.dup + counters.err} tone={counters.dup + counters.err > 0 ? "warning" : "success"} />
             </div>
 
             {failed > 0 && (
