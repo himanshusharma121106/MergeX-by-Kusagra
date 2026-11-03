@@ -167,42 +167,56 @@ function findBarTenderExe(customPath) {
   return null;
 }
 
-// Get all installed Windows printers using fast PowerShell Get-Printer
+// Cache Windows printers to prevent spawning slow shell processes every 2 seconds
+let cachedPrinters = null;
+let lastPrintersCheck = 0;
+const PRINTERS_CACHE_TTL_MS = 30000; // 30 seconds cache
+
+// Get all installed Windows printers using fast PowerShell CIM Instance
 function getWindowsPrinters() {
-  // Method 1: Fast direct PowerShell Get-Printer
+  const now = Date.now();
+  if (cachedPrinters && (now - lastPrintersCheck < PRINTERS_CACHE_TTL_MS)) {
+    return cachedPrinters;
+  }
+
+  // Method 1: Fast PowerShell Get-CimInstance Win32_Printer (Windows 10, 11 compatible, no wmic)
   try {
     const output = execFileSync(
       'powershell.exe',
-      ['-NoProfile', '-Command', 'Get-Printer | Select-Object Name, PrinterStatus, Default | ConvertTo-Json'],
-      { encoding: 'utf8', timeout: 4000 }
+      ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance -ClassName Win32_Printer | Select-Object Name, Default, WorkOffline, PrinterStatus | ConvertTo-Json -Compress'],
+      { encoding: 'utf8', timeout: 5000, windowsHide: true }
     );
     const trimmed = (output || '').trim();
     if (trimmed) {
       const parsed = JSON.parse(trimmed);
-      return Array.isArray(parsed) ? parsed : [parsed];
+      cachedPrinters = Array.isArray(parsed) ? parsed : [parsed];
+      lastPrintersCheck = now;
+      return cachedPrinters;
     }
   } catch (err) {
-    // fallback to Method 2
+    // If powerShell timed out or failed, keep existing cache if present
+    if (cachedPrinters && cachedPrinters.length > 0) {
+      return cachedPrinters;
+    }
   }
 
-  // Method 2: WMIC Printer listing
+  // Method 2: Fallback Get-Printer
   try {
-    const cmd = `cmd.exe /c "wmic printer get name,default /format:csv"`;
-    const output = execSync(cmd, { encoding: 'utf8', timeout: 3000 });
-    const lines = output.trim().split(/\r?\n/).filter(l => l.trim().length > 0);
-    const printers = [];
-    for (let i = 1; i < lines.length; i++) {
-      const parts = lines[i].split(',');
-      if (parts.length >= 3) {
-        const isDefault = parts[1].trim().toLowerCase() === 'true';
-        const name = parts[2].trim();
-        if (name) printers.push({ Name: name, Default: isDefault, PrinterStatus: 0 });
-      }
+    const output = execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', 'Get-Printer | Select-Object Name, PrinterStatus, Default | ConvertTo-Json -Compress'],
+      { encoding: 'utf8', timeout: 5000, windowsHide: true }
+    );
+    const trimmed = (output || '').trim();
+    if (trimmed) {
+      const parsed = JSON.parse(trimmed);
+      cachedPrinters = Array.isArray(parsed) ? parsed : [parsed];
+      lastPrintersCheck = now;
+      return cachedPrinters;
     }
-    if (printers.length > 0) return printers;
   } catch {}
 
-  return [];
+  return cachedPrinters || [];
 }
 
 function isLabelPrinter(name) {
@@ -216,6 +230,8 @@ function isLabelPrinter(name) {
   ];
   return keywords.some(k => s.includes(k));
 }
+
+let lastAutoDetectedPrinter = null;
 
 // Intelligent printer resolver (matches exact, partial, or detects ANY installed thermal/label printer)
 function resolvePrinter(requestedName, printers) {
@@ -241,7 +257,9 @@ function resolvePrinter(requestedName, printers) {
     ));
     if (partial) return partial.Name;
 
-    console.warn(`[Printer Notice] Requested printer "${req}" is not installed on this PC. Auto-detecting connected printer...`);
+    if (lastAutoDetectedPrinter !== req) {
+      console.warn(`[Printer Notice] Requested printer "${req}" is not installed on this PC. Auto-detecting connected printer...`);
+    }
   }
 
   // 2. Check env BARTENDER_PRINTER_NAME if specified and not 'auto'
@@ -258,7 +276,10 @@ function resolvePrinter(requestedName, printers) {
   // 3. Auto-detect ANY thermal / barcode / label printer installed on THIS PC
   const labelPrinter = list.find(p => p && p.Name && isLabelPrinter(p.Name));
   if (labelPrinter) {
-    console.log(`[Auto-Detect Printer] Matched thermal label printer: "${labelPrinter.Name}"`);
+    if (lastAutoDetectedPrinter !== labelPrinter.Name) {
+      lastAutoDetectedPrinter = labelPrinter.Name;
+      console.log(`[Auto-Detect Printer] Matched thermal label printer: "${labelPrinter.Name}"`);
+    }
     return labelPrinter.Name;
   }
 
@@ -335,10 +356,13 @@ async function getRealTimePrinterStatus(targetPrinterName) {
     }
 
     if (!exePath && isOnline) {
-      errorMsg = 'Printer detected in Windows, but BarTender (bartend.exe) is not installed in standard path.';
+      // Direct Thermal Printer mode (Zebra, TSC, etc.) ready without requiring BarTender installation
+      isOnline = true;
+      statusText = 'Online';
+      errorMsg = '';
     }
 
-    if (!foundLabel && isOnline && !errorMsg) {
+    if (!foundLabel && isOnline && !errorMsg && exePath) {
       errorMsg = `Label template missing. Place your .btw file in "C:\\Users\\idu line\\Documents\\Labels"`;
     }
   }
@@ -352,6 +376,7 @@ async function getRealTimePrinterStatus(targetPrinterName) {
     lastPrintStatus: printStats.lastPrintStatus,
     lastError: errorMsg || printStats.lastError || '',
     bartenderInstalled: !!exePath,
+    directThermalMode: !exePath && isOnline,
     exePath: exePath || '',
     templateExists: !!foundLabel,
     labelPath: foundLabel || process.env.BARTENDER_LABEL_PATH || 'C:\\Users\\idu line\\Documents\\Labels\\Template.btw',
@@ -414,6 +439,81 @@ router.get('/templates', (req, res) => {
   }
   res.json({ success: true, activeTemplate: found, templates: allTemplates });
 });
+
+// Universal Direct Thermal / Barcode Printing (Zero BarTender dependency)
+function printDirectThermal(req, res, printerName, { qrCode, sapCode, description, plant, location, line }) {
+  const isEpl = /epl/i.test(printerName);
+  const cleanDesc = String(description || '').replace(/[\r\n\t]/g, ' ').slice(0, 32);
+  const cleanSap = String(sapCode || '').replace(/[\r\n\t]/g, '');
+  const cleanQr = String(qrCode || '').replace(/[\r\n\t]/g, '');
+  const cleanPlantLine = `${plant || ''} ${line ? '| ' + line : ''}`.trim();
+  const dateStr = new Date().toLocaleDateString('en-GB');
+
+  let rawData = '';
+  if (isEpl) {
+    // EPL2 format for Zebra/Eltron thermal printers
+    rawData = [
+      'N',
+      'q600',
+      'Q400,24',
+      `B30,25,0,Q,2,6,1,0,"${cleanQr}"`,
+      `A210,25,0,4,1,1,N,"${cleanSap}"`,
+      `A210,65,0,3,1,1,N,"${cleanDesc}"`,
+      `A210,100,0,2,1,1,N,"${cleanPlantLine}"`,
+      `A210,130,0,2,1,1,N,"${dateStr}"`,
+      'P1',
+      ''
+    ].join('\r\n');
+  } else {
+    // Universal ZPL II format for Zebra / TSC / modern thermal printers
+    rawData = [
+      '^XA',
+      '^PW640',
+      '^LL400',
+      '^PON',
+      `^FO30,30^BQN,2,6^FDQA,${cleanQr}^FS`,
+      `^FO210,30^A0N,30,30^FD${cleanSap}^FS`,
+      `^FO210,70^A0N,22,22^FD${cleanDesc}^FS`,
+      `^FO210,105^A0N,20,20^FD${cleanPlantLine}^FS`,
+      `^FO210,135^A0N,18,18^FD${dateStr}^FS`,
+      '^XZ',
+      ''
+    ].join('\r\n');
+  }
+
+  const tempFile = path.join(os.tmpdir(), `direct_label_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.txt`);
+  try {
+    fs.writeFileSync(tempFile, rawData, 'ascii');
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'Failed to write label temp file', details: err.message });
+  }
+
+  const psCmd = `Get-Content -Path '${tempFile}' -Raw | Out-Printer -Name '${printerName}'`;
+  exec(`powershell.exe -NoProfile -NonInteractive -Command "${psCmd}"`, { timeout: 12000, windowsHide: true }, (err, stdout, stderr) => {
+    try { fs.unlinkSync(tempFile); } catch {}
+
+    printStats.totalPrinted++;
+    if (err) {
+      printStats.failedPrinted++;
+      printStats.lastPrintStatus = 'Failed';
+      printStats.lastError = err.message;
+      if (req.io) req.io.emit('printer_event', { type: 'error', message: `Direct Print Failed: ${err.message}` });
+      return res.status(500).json({ success: false, error: 'Direct printer output failed', details: err.message });
+    }
+
+    printStats.successPrinted++;
+    printStats.lastPrintStatus = 'Success';
+    printStats.lastError = '';
+
+    console.log(`[Direct Thermal Print] Label sent successfully to "${printerName}" (${isEpl ? 'EPL' : 'ZPL'})`);
+    if (req.io) req.io.emit('printer_event', { type: 'success', details: { method: 'direct_thermal', printer: printerName, qrCode: cleanQr } });
+    return res.json({
+      success: true,
+      message: `Printed successfully via Direct Thermal Driver (${printerName})`,
+      details: { printer: printerName, method: isEpl ? 'EPL' : 'ZPL', qrCode: cleanQr }
+    });
+  });
+}
 
 // REST endpoint: /print
 router.post('/print', async (req, res) => {
@@ -491,17 +591,29 @@ router.post('/print', async (req, res) => {
       }
     }
 
-    // 2. Fallback to CMD (BarTender Suite bartend.exe)
+    // 2. Fallback to Direct Thermal Printing or BarTender Suite
     if (!apiSuccess && (method === 'cmd' || method === 'auto')) {
       const exeFile = findBarTenderExe(printerConfig && printerConfig.exePath);
+      
+      // If BarTender is not installed, print directly to connected Zebra / Thermal printer!
       if (!exeFile) {
-        const noExeErr = 'BarTender executable (bartend.exe) is not installed on this PC. Cannot print.';
-        printStats.totalPrinted++;
-        printStats.failedPrinted++;
-        printStats.lastPrintStatus = 'Failed';
-        printStats.lastError = noExeErr;
-        if (req.io) req.io.emit('printer_event', { type: 'error', message: noExeErr });
-        return res.status(500).json({ success: false, error: noExeErr });
+        if (!printerName) {
+          const noPrnErr = 'No printer connected or detected in Windows. Please connect your Zebra or label printer.';
+          printStats.totalPrinted++;
+          printStats.failedPrinted++;
+          printStats.lastPrintStatus = 'Failed';
+          printStats.lastError = noPrnErr;
+          if (req.io) req.io.emit('printer_event', { type: 'error', message: noPrnErr });
+          return res.status(500).json({ success: false, error: noPrnErr });
+        }
+
+        console.log(`[Direct Thermal Print] BarTender not installed; printing directly to "${printerName}"...`);
+        return printDirectThermal(req, res, printerName, {
+          qrCode, sapCode, description,
+          plant: req.body.plant,
+          location: req.body.location,
+          line: req.body.line
+        });
       }
 
       const customLabel = (printerConfig && printerConfig.labelPath) ? printerConfig.labelPath : null;

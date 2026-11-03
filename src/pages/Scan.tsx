@@ -54,15 +54,24 @@ function ScanContent() {
   const lines = useMemo(() => h.lines[plant] ?? [], [h.lines, plant]);
   const [line, setLine] = useState<string>(lines[0] ?? "");
 
+  // Auto-populate location when loaded asynchronously from Supabase cloud
   useEffect(() => {
-    if (!plants.includes(plant)) {
-      setPlant(plants[0] ?? "");
+    if ((!location || !h.locations.includes(location)) && h.locations.length > 0) {
+      setLocation(h.locations[0]);
+    }
+  }, [h.locations, location]);
+
+  // Auto-populate plant when location changes or plants load
+  useEffect(() => {
+    if ((!plant || !plants.includes(plant)) && plants.length > 0) {
+      setPlant(plants[0]);
     }
   }, [location, plants, plant]);
 
+  // Auto-populate line when plant changes or lines load
   useEffect(() => {
-    if (!lines.includes(line)) {
-      setLine(lines[0] ?? "");
+    if ((!line || !lines.includes(line)) && lines.length > 0) {
+      setLine(lines[0]);
     }
   }, [plant, lines, line]);
 
@@ -91,12 +100,42 @@ function ScanContent() {
     const id = window.setInterval(focus, 1000);
     window.addEventListener("click", focus);
 
-    // Global scanner listener: redirect typed characters from scanner into input field
+    // Global automatic scanner listener (captures rapid barcode inputs even if focus wasn't set, zero Enter/Tab needed)
+    let scannerBuffer = "";
+    let scannerTimer: NodeJS.Timeout | null = null;
+
     const onGlobalKey = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null;
-      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT")) return;
-      if (e.key.length === 1 || e.key === "Enter") {
-        inputRef.current?.focus();
+      if (ae && ae !== inputRef.current && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
+
+      if (e.key === "Enter" || e.key === "Tab") {
+        if (scannerBuffer.trim().length >= 6) {
+          e.preventDefault();
+          if (scannerTimer) clearTimeout(scannerTimer);
+          const toScan = scannerBuffer.trim();
+          scannerBuffer = "";
+          handleScan(toScan);
+          return;
+        }
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        scannerBuffer += e.key;
+        if (inputRef.current && document.activeElement !== inputRef.current) {
+          inputRef.current.focus();
+        }
+
+        if (scannerTimer) clearTimeout(scannerTimer);
+        // Automatically submit 120ms after barcode scan finishes (no Tab or Enter required!)
+        scannerTimer = setTimeout(() => {
+          if (scannerBuffer.trim().length >= 6) {
+            const toScan = scannerBuffer.trim();
+            scannerBuffer = "";
+            handleScan(toScan);
+          } else {
+            scannerBuffer = "";
+          }
+        }, 120);
       }
     };
     window.addEventListener("keydown", onGlobalKey);
@@ -105,6 +144,7 @@ function ScanContent() {
       window.clearInterval(id);
       window.removeEventListener("click", focus);
       window.removeEventListener("keydown", onGlobalKey);
+      if (scannerTimer) clearTimeout(scannerTimer);
     };
   }, []);
 
@@ -214,6 +254,9 @@ function ScanContent() {
     } finally {
       rawRef.current = "";
       setRaw("");
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
       busy.current = false;
     }
   };
@@ -281,16 +324,16 @@ function ScanContent() {
     const trimmed = val.trim();
     if (!trimmed) return;
 
-    // 2. Automatic Scanner Detection without pressing Enter:
-    // If the scanned string reaches configured length, trigger quickly (50ms)
-    // Otherwise wait 220ms after the last character is received before auto-submitting
-    const expectedLen = cfg.length || 0;
+    // 2. Automatic Scanner Detection without pressing Enter or Tab:
+    // If the scanned string reaches target barcode length, trigger in 30ms
+    // Otherwise wait 120ms after the last character before automatically submitting
+    const expectedLen = cfg.length || 22;
     const isTargetLength = expectedLen > 0 && trimmed.length >= expectedLen;
-    const delay = isTargetLength ? 50 : 220;
+    const delay = (isTargetLength || trimmed.length >= 20) ? 30 : 120;
 
     if (trimmed.length >= 6) {
       scanTimer.current = setTimeout(() => {
-        handleScan(rawRef.current);
+        handleScan(rawRef.current || trimmed);
       }, delay);
     }
   };

@@ -19,9 +19,9 @@ export default function PrinterStatus() {
   const fetchStatus = async () => {
     try {
       const cfg = getPrinterConfig();
-      // Using an abort controller to prevent long stalls if proxy is down
+      // Generous timeout to avoid false drops on Windows
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
       
       const queryParam = cfg.name ? `?printer=${encodeURIComponent(cfg.name)}` : '';
       const res = await fetch(`${cfg.url}/status${queryParam}`, {
@@ -31,7 +31,8 @@ export default function PrinterStatus() {
       clearTimeout(timeoutId);
       setStatus({ ...res, name: res.name || cfg.name || 'Zebra Printer' });
     } catch (err) {
-      setStatus(null);
+      // Retain previous status rather than flickering to null immediately
+      setStatus(prev => prev ? { ...prev, status: prev.status || 'Offline' } : null);
     } finally {
       setLoading(false);
     }
@@ -39,8 +40,8 @@ export default function PrinterStatus() {
 
   useEffect(() => {
     fetchStatus();
-    // Poll the local printer API every 2 seconds
-    const interval = setInterval(fetchStatus, 2000);
+    // Poll the local printer API every 3 seconds
+    const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
   }, []);
 

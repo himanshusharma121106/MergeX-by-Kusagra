@@ -101,8 +101,8 @@ const listeners = new Set<() => void>();
 function emitLocal() { listeners.forEach((l) => l()); }
 
 export const API_URL = import.meta.env.VITE_API_URL || 
-  (typeof window !== "undefined" && window.location.port !== "8080" 
-    ? `${window.location.origin}/api` 
+  (typeof window !== "undefined" && window.location.hostname === "localhost"
+    ? (window.location.port === "8080" ? "http://localhost:3000/api" : `${window.location.origin}/api`)
     : "http://localhost:3000/api");
 
 async function syncData() {
@@ -596,12 +596,18 @@ export interface PrinterConfig {
 export function getPrinterConfig(): PrinterConfig {
   try {
     const raw = localStorage.getItem('scanwise_printer_config_v2');
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.url && parsed.url.includes('netlify.app')) {
+        parsed.url = 'http://localhost:3000/api/bartender';
+      }
+      return parsed;
+    }
   } catch {
     // Ignore storage parse errors
   }
   return {
-    url: `${API_URL}/bartender`,
+    url: 'http://localhost:3000/api/bartender',
     name: 'auto',
     method: 'auto',
     labelPath: 'C:\\Users\\idu line\\Documents\\Labels'

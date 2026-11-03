@@ -12,10 +12,7 @@ echo Working Directory: %CD%
 
 :: 1. Free Port 3000 if already in use by another instance
 echo Checking port 3000...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') do (
-    echo [INFO] Port 3000 was busy. Releasing port 3000 (Closing PID %%a)...
-    taskkill /F /PID %%a >nul 2>nul
-)
+powershell -NoProfile -Command "Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>nul
 
 :: 2. Auto-detect BarTender Label Template (.btw)
 set "BARTENDER_LABEL_PATH="
